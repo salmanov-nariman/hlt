@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: hlt
+
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: user
+  template:
+    metadata:
+      labels:
+        app: user
+    spec:
+      containers:
+        - name: user-container
+          image: ghcr.io/salmanov-nariman/hlt-user:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: hlt
+
+spec:
+  type: ClusterIP
+  selector:
+    app: auth
+  ports:
+    - port: 80
+      targetPort: 8080

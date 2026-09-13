@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking-service
+  namespace: hlt
+
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: booking
+  template:
+    metadata:
+      labels:
+        app: booking
+    spec:
+      containers:
+        - name: booking-container
+          image: ghcr.io/salmanov-nariman/hlt-booking:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
