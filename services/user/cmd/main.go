@@ -13,7 +13,7 @@ func healthCheck(writer http.ResponseWriter, request *http.Request) {
 func main() {
 	log.Println("Сервис user запущен...")
 
-	http.HandleFunc("/api/auth/healthCheck", healthCheck)
+	http.HandleFunc("/api/user/healthCheck", healthCheck)
 
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		log.Println("Ошибка при запуске user сервиса", err)
