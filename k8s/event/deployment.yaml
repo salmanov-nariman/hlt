@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: event-service
+  namespace: hlt
+
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: event
+  template:
+    metadata:
+      labels:
+        app: event
+    spec:
+      containers:
+        - name: event-container
+          image: ghcr.io/salmanov-nariman/hlt-event:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
