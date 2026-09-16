@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: user-config
+  namespace: hlt
+
+data:
+  DB_URL: "r2dbc:postgresql://user-postgres.hlt.svc.cluster.local:5432/user-db"
+  DB_URL_JDBC: "jdbc:postgresql://user-postgres.hlt.svc.cluster.local:5432/user-db"
