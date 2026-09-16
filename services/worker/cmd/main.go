@@ -11,11 +11,11 @@ func healthCheck(writer http.ResponseWriter, request *http.Request) {
 }
 
 func main() {
-	log.Println("Сервис event запущен...")
+	log.Println("Сервис worker запущен...")
 
 	http.HandleFunc("/api/event/healthCheck", healthCheck)
 
 	if err := http.ListenAndServe(":8080", nil); err != nil {
-		log.Println("Ошибка при запуске event сервиса", err)
+		log.Println("Ошибка при запуске worker сервиса", err)
 	}
 }
