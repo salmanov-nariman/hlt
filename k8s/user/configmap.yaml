@@ -5,5 +5,5 @@ metadata:
   namespace: hlt
 
 data:
-  DB_URL: "r2dbc:postgresql://user-postgres.hlt.svc.cluster.local:5432/user-db"
-  DB_URL_JDBC: "jdbc:postgresql://user-postgres.hlt.svc.cluster.local:5432/user-db"
+  DB_URL: "r2dbc:postgresql://user-postgres.hlt.svc.cluster.local:5432/user_db"
+  DB_URL_JDBC: "jdbc:postgresql://user-postgres.hlt.svc.cluster.local:5432/user_db"

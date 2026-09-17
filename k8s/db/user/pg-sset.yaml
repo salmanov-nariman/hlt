@@ -53,7 +53,7 @@ spec:
                 - -U
                 - user
                 - -d
-                - user-db
+                - user_db
             initialDelaySeconds: 5
             periodSeconds: 5
   volumeClaimTemplates:
