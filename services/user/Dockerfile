@@ -1,18 +1,18 @@
-FROM golang:1.27-alpine AS builder
-WORKDIR /build
+FROM maven:3.9-eclipse-temurin-21 AS build
+WORKDIR /app
 
-COPY services/user/ ./services/user/
+COPY pom.xml .
+RUN mvn dependency:go-offline -B
 
-WORKDIR /build/services/user
-RUN go mod download
-RUN CGO_ENABLED=0 GOOS=linux go build -o user-service ./cmd/main.go
+COPY src ./src
+RUN mvn package -DskipTests -B
 
-FROM alpine:latest
+FROM eclipse-temurin:21-jre
 WORKDIR /app
 
 LABEL org.opencontainers.image.source="https://github.com/salmanov-nariman/hlt"
 
-COPY --from=builder /build/services/user/user-service .
+COPY --from=build /app/target/*.jar app.jar
 
 EXPOSE 8080
-CMD ["./user-service"]
+ENTRYPOINT ["java", "-jar", "app.jar"]
