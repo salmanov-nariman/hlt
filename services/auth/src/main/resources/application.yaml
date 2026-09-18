@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: auth
+
+  r2dbc:
+    url: ${DB_URL}
+    username: ${POSTGRES_USER}
+    password: ${POSTGRES_PASSWORD}
+
+  flyway:
+    enable: true
+    url: ${DB_URL_JDBC}
+    user: ${POSTGRES_USER}
+    password: ${POSTGRES_PASSWORD}

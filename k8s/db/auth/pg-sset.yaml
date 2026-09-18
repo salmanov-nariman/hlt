@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-postgres
+  namespace: hlt
+
+spec:
+  clusterIP: None
+  selector:
+    service-target: auth-postgres-pods
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: auth-postgres
+  namespace: hlt
+
+spec:
+  serviceName: auth-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      statefulset-owner: auth-postgres
+  template:
+    metadata:
+      labels:
+        service-target: auth-postgres-pods
+        statefulset-owner: auth-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:18
+          ports:
+            - containerPort: 5432
+              name: postgres
+          envFrom:
+            - secretRef:
+                name: auth-postgres-secret
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/18/docker
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
