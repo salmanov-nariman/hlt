@@ -7,3 +7,4 @@ metadata:
 data:
   DB_URL: "r2dbc:postgresql://auth-postgres.hlt.svc.cluster.local:5432/auth_db"
   DB_URL_JDBC: "jdbc:postgresql://auth-postgres.hlt.svc.cluster.local:5432/auth_db"
+  ACCESS_EXPIRATION: "900000"
