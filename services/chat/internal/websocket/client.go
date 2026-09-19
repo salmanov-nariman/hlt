@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"encoding/json"
 	"log"
 
 	"github.com/gorilla/websocket"
@@ -11,13 +12,15 @@ type Client struct {
 	connection *websocket.Conn
 	manager    *Manager
 	egress     chan []byte
+	roomID     string
 }
 
-func NewClient(conn *websocket.Conn, manager *Manager) *Client {
+func NewClient(conn *websocket.Conn, manager *Manager, roomID string) *Client {
 	return &Client{
 		connection: conn,
 		manager:    manager,
 		egress:     make(chan []byte),
+		roomID:     roomID,
 	}
 }
 
@@ -34,8 +37,15 @@ func (c *Client) readMessage() {
 			}
 			break
 		}
+		var event Event
+		if err := json.Unmarshal(payload, &event); err != nil {
+			log.Printf("received invalid JSON: %v", err)
+			continue
+		}
 
-		c.manager.broadcast <- payload
+		event.RoomID = c.roomID
+
+		c.manager.broadcast <- event
 
 		log.Println(messageType)
 		log.Println(string(payload))
