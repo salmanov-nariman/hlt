@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"encoding/json"
 	"log"
 
 	"github.com/gorilla/websocket"
@@ -34,8 +35,13 @@ func (c *Client) readMessage() {
 			}
 			break
 		}
+		var event Event
+		if err := json.Unmarshal(payload, &event); err != nil {
+			log.Printf("received invalid JSON: %v", err)
+			continue
+		}
 
-		c.manager.broadcast <- payload
+		c.manager.broadcast <- event
 
 		log.Println(messageType)
 		log.Println(string(payload))

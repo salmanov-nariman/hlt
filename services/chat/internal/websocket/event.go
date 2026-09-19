@@ -1,0 +1,12 @@
+package websocket
+
+import "encoding/json"
+
+type Event struct {
+	Type    string          `json:"type"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+type ChatMessage struct {
+	Text string `json:"text"`
+}

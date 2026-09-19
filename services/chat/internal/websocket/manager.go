@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"sync"
@@ -18,13 +19,13 @@ var (
 type Manager struct {
 	clients ClientList
 	sync.RWMutex
-	broadcast chan []byte
+	broadcast chan Event
 }
 
 func NewManager() *Manager {
 	manager := &Manager{
 		clients:   make(ClientList),
-		broadcast: make(chan []byte),
+		broadcast: make(chan Event),
 	}
 
 	go manager.routeMessage()
@@ -67,12 +68,32 @@ func (m *Manager) removeClient(client *Client) {
 func (m *Manager) routeMessage() {
 	for {
 		select {
-		case payload := <-m.broadcast:
-			m.RLock()
-			for client := range m.clients {
-				client.egress <- payload
+		case event := <-m.broadcast:
+			switch event.Type {
+			case "send_message":
+				var chtMsg ChatMessage
+				if err := json.Unmarshal(event.Payload, &chtMsg); err != nil {
+					log.Printf("error unmarshaling payload: %v", err)
+					continue
+				}
+				if chtMsg.Text == "/summary" {
+					log.Println("command intercepted: user requested summary!")
+					// add summary logic here:
+					continue
+				}
+				data, err := json.Marshal(event)
+				if err != nil {
+					log.Printf("error marshaling event to json: %v", err)
+					continue
+				}
+				m.RLock()
+				for client := range m.clients {
+					client.egress <- data
+				}
+				m.RUnlock()
+			default:
+				log.Printf("unknown event type: %v", event.Type)
 			}
-			m.RUnlock()
 		}
 	}
 }
