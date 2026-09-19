@@ -12,13 +12,16 @@ import com.hlt.auth.repository.CredentialsRepository;
 import com.hlt.auth.repository.RefreshTokenRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 import reactor.util.function.Tuple2;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.UUID;
 
 @Service
 public class AuthService {
@@ -106,6 +109,16 @@ public class AuthService {
                     return refreshTokenRepository.save(existingToken)
                             .map(savedToken -> new TokenResponse(savedToken.getToken(), newAccessToken));
                 });
+    }
+
+    public Mono<UUID> validate(String authHeader) {
+
+        return Mono.justOrEmpty(authHeader)
+                .filter(header -> header.startsWith("Bearer "))
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Отсутствует или неверный формат заголовка")))
+                .map(header -> header.substring(7))
+                .flatMap(jwtService::validateAndExtractUserId)
+                .onErrorMap(e -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Токен недействителен или просрочен"));
     }
 
     private String getErrorMessage(Tuple2<Boolean, Boolean> tuple) {
