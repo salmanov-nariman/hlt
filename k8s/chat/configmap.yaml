@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chat-config
+  namespace: hlt
+
+data:
+  WORKER_SERVICE_ADDR: "worker-service:50051"
+  HHTP_PORT: "8080"

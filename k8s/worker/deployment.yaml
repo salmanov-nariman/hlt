@@ -1,25 +1,23 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: chat-service
+  name: worker-service
   namespace: hlt
 
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: chat
+      app: worker
   template:
     metadata:
       labels:
-        app: chat
+        app: worker
     spec:
       containers:
-        - name: chat-container
-          image: ghcr.io/salmanov-nariman/hlt-chat:latest
+        - name: worker-container
+          image: ghcr.io/salmanov-nariman/hlt-worker:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
-          envFrom:
-            - configMapRef:
-                name: chat-config
+            - containerPort: 50051
