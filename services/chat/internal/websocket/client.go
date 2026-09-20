@@ -1,26 +1,25 @@
 package websocket
 
 import (
-	"encoding/json"
 	"log"
 
 	"github.com/gorilla/websocket"
 )
 
-type ClientList map[*Client]bool
+// type ClientList map[*Client]bool
 type Client struct {
 	connection *websocket.Conn
 	manager    *Manager
 	egress     chan []byte
-	roomID     string
+	userID     string
 }
 
-func NewClient(conn *websocket.Conn, manager *Manager, roomID string) *Client {
+func NewClient(conn *websocket.Conn, manager *Manager, userID string) *Client {
 	return &Client{
 		connection: conn,
 		manager:    manager,
 		egress:     make(chan []byte),
-		roomID:     roomID,
+		userID:     userID,
 	}
 }
 
@@ -30,25 +29,26 @@ func (c *Client) readMessage() {
 	}()
 
 	for {
-		messageType, payload, err := c.connection.ReadMessage()
+		//messageType, payload, err := c.connection.ReadMessage()
+		_, _, err := c.connection.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("error reading message: %v", err)
 			}
 			break
 		}
-		var event Event
-		if err := json.Unmarshal(payload, &event); err != nil {
-			log.Printf("received invalid JSON: %v", err)
-			continue
-		}
-
-		event.RoomID = c.roomID
-
-		c.manager.broadcast <- event
-
-		log.Println(messageType)
-		log.Println(string(payload))
+		//	var event Event
+		//	if err := json.Unmarshal(payload, &event); err != nil {
+		//		log.Printf("received invalid JSON: %v", err)
+		//		continue
+		//	}
+		//
+		//	event.RoomID = c.roomID
+		//
+		//	c.manager.broadcast <- event
+		//
+		//	log.Println(messageType)
+		//	log.Println(string(payload))
 	}
 }
 

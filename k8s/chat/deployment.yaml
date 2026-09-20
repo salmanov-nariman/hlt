@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: booking-service
+  name: chat-service
   namespace: hlt
 
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
-      app: booking
+      app: chat
   template:
     metadata:
       labels:
-        app: booking
+        app: chat
     spec:
       containers:
-        - name: booking-container
-          image: ghcr.io/salmanov-nariman/hlt-booking:latest
+        - name: chat-container
+          image: ghcr.io/salmanov-nariman/hlt-chat:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080

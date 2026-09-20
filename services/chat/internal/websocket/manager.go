@@ -17,14 +17,14 @@ var (
 )
 
 type Manager struct {
-	rooms map[string]ClientList
+	clients map[string]*Client
 	sync.RWMutex
 	broadcast chan Event
 }
 
 func NewManager() *Manager {
 	manager := &Manager{
-		rooms:     make(map[string]ClientList),
+		clients:   make(map[string]*Client),
 		broadcast: make(chan Event),
 	}
 
@@ -36,9 +36,9 @@ func NewManager() *Manager {
 func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 	log.Println("new connection")
 
-	roomID := r.URL.Query().Get("room")
-	if roomID == "" {
-		http.Error(w, "room parameter is missing", http.StatusBadRequest)
+	userID := r.Header.Get("X-User-Id")
+	if userID == "" {
+		http.Error(w, "X-User-Id header is missing", http.StatusBadRequest)
 		return
 	}
 
@@ -48,7 +48,7 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := NewClient(conn, m, roomID)
+	client := NewClient(conn, m, userID)
 	m.addClient(client)
 
 	go client.readMessage()
@@ -59,60 +59,43 @@ func (m *Manager) addClient(client *Client) {
 	m.Lock()
 	defer m.Unlock()
 
-	if m.rooms[client.roomID] == nil {
-		m.rooms[client.roomID] = make(ClientList)
-	}
-	m.rooms[client.roomID][client] = true
+	m.clients[client.userID] = client
+	log.Printf("Client added. UserID: %s, Total connections: %d\n", client.userID, len(m.clients))
 }
 
 func (m *Manager) removeClient(client *Client) {
 	m.Lock()
 	defer m.Unlock()
 
-	if _, ok := m.rooms[client.roomID][client]; ok {
+	if _, ok := m.clients[client.userID]; ok {
 		if err := client.connection.Close(); err != nil {
 			log.Println(err)
 		}
-		delete(m.rooms[client.roomID], client)
-
-		if len(m.rooms[client.roomID]) == 0 {
-			delete(m.rooms, client.roomID)
-		}
+		delete(m.clients, client.userID)
+		log.Printf("Client removed. UserID: %s\n", client.userID)
 	}
 }
 
 func (m *Manager) routeMessage() {
-	for {
-		select {
-		case event := <-m.broadcast:
-			switch event.Type {
-			case "send_message":
-				var chtMsg ChatMessage
-				if err := json.Unmarshal(event.Payload, &chtMsg); err != nil {
-					log.Printf("error unmarshaling payload: %v", err)
-					continue
-				}
-				if chtMsg.Text == "/summary" {
-					log.Println("command intercepted: user requested summary!")
-					// add summary logic here:
-					continue
-				}
-				data, err := json.Marshal(event)
-				if err != nil {
-					log.Printf("error marshaling event to json: %v", err)
-					continue
-				}
-				m.RLock()
-				if roomClients, ok := m.rooms[event.RoomID]; ok {
-					for client := range roomClients {
-						client.egress <- data
-					}
-				}
+	for event := range m.broadcast {
+		data, err := json.Marshal(event)
+		if err != nil {
+			log.Printf("error marshaling event to json: %v", err)
+			continue
+		}
 
-				m.RUnlock()
-			default:
-				log.Printf("unknown event type: %v", event.Type)
+		m.RLock()
+		// Пробегаемся по списку получателей
+		for _, targetID := range event.TargetUserIDs {
+			// Если получатель сейчас в сети (есть в мапе)
+			if client, ok := m.clients[targetID]; ok {
+				client.egress <- data
 			}
 		}
+		m.RUnlock()
 	}
+}
+
+func (m *Manager) BroadcastEvent(event Event) {
+	m.broadcast <- event
 }
