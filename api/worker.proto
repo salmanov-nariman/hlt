@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package worker;
+
+option go_package = "pkg/pb/worker";
+
+service WorkerService {
+  // Метод принимает ID комнаты и ID отправителя, проверяет права и возвращает список участников
+  rpc GetDuoMembers(GetDuoMembersRequest) returns (GetDuoMembersResponse);
+}
+
+message GetDuoMembersRequest {
+  string duo_id = 1;
+  string sender_id = 2;
+}
+
+message GetDuoMembersResponse {
+  repeated string user_ids = 1;
+}
