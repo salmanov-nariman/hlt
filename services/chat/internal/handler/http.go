@@ -35,7 +35,7 @@ func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.chatService.ProcessMessage(senderID, req.RoomID, req.Text)
+	err := h.chatService.ProcessMessage(r.Context(), senderID, req.RoomID, req.Text)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
