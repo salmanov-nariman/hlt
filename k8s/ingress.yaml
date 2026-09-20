@@ -35,11 +35,11 @@ spec:
     - host: hlt.com
       http:
         paths:
-          - path: /api/booking
+          - path: /api/chat
             pathType: Prefix
             backend:
               service:
-                name: booking-service
+                name: chat-service
                 port:
                   number: 80
           - path: /api/event
