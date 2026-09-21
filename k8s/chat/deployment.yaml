@@ -23,3 +23,5 @@ spec:
           envFrom:
             - configMapRef:
                 name: chat-config
+            - secretRef:
+                name: chat-secret

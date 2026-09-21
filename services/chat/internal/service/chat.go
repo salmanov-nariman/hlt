@@ -2,22 +2,27 @@ package service
 
 import (
 	"chat/internal/grpc_client/worker"
+	"chat/internal/repository"
 	"chat/internal/websocket"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+
+	"github.com/google/uuid"
 )
 
 type ChatService struct {
 	wsManager    *websocket.Manager
 	workerClient worker.WorkerClient
+	chatRepo     *repository.ChatRepository
 }
 
-func NewChatService(wsManager *websocket.Manager, workerClient worker.WorkerClient) *ChatService {
+func NewChatService(wsManager *websocket.Manager, workerClient worker.WorkerClient, chatRepo *repository.ChatRepository) *ChatService {
 	return &ChatService{
 		wsManager:    wsManager,
 		workerClient: workerClient,
+		chatRepo:     chatRepo,
 	}
 }
 
@@ -30,6 +35,19 @@ func (s *ChatService) ProcessMessage(ctx context.Context, senderID, roomID, text
 		return fmt.Errorf("access denied or worker error: %w", err)
 	}
 	log.Printf("[gRPC] Ответ от Worker сервиса получен. Участники: %v", targetUserIDs)
+
+	msgID := uuid.New().String()
+	msg := repository.Message{
+		ID:        msgID,
+		DuoID:     roomID,
+		SenderID:  senderID,
+		Content:   text,
+		IsSummary: false,
+	}
+
+	if err := s.chatRepo.SaveMessage(ctx, msg); err != nil {
+		return fmt.Errorf("failed to save message to db: %w", err)
+	}
 
 	chatMsg := websocket.ChatMessage{Text: text}
 	payloadBytes, _ := json.Marshal(chatMsg)

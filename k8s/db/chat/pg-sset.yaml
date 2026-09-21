@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: chat-postgres
+  namespace: hlt
+
+spec:
+  clusterIP: None
+  selector:
+    service-target: chat-postgres-pods
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: chat-postgres
+  namespace: hlt
+
+spec:
+  serviceName: chat-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      statefulset-owner: chat-postgres
+  template:
+    metadata:
+      labels:
+        service-target: chat-postgres-pods
+        statefulset-owner: chat-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:18
+          ports:
+            - containerPort: 5432
+              name: postgres
+          envFrom:
+            - secretRef:
+                name: chat-postgres-secret
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/18/docker
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d/
+      volumes:
+        - name: init-script
+          configMap:
+            name: chat-postgres-init
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi

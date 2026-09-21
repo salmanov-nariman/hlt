@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chat-postgres-init
+  namespace: hlt
+data:
+  01-init.sql: |
+    CREATE TABLE messages(
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        duo_id UUID NOT NULL,
+        sender_id UUID NOT NULL,
+        content TEXT NOT NULL,
+        is_summary BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
