@@ -35,13 +35,14 @@ func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.chatService.ProcessMessage(r.Context(), senderID, req.RoomID, req.Text)
-	if err != nil {
+	if err := h.chatService.ProcessMessage(r.Context(), senderID, req.RoomID, req.Text); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok"}`))
+	if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
+		http.Error(w, "Invalid write response", http.StatusBadRequest)
+	}
 }

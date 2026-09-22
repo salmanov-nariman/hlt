@@ -2,38 +2,79 @@ package main
 
 import (
 	"chat/config"
-	"chat/internal/grpc_client/worker"
-	"chat/internal/handler"
-	"chat/internal/service"
 	"chat/internal/websocket"
+	"chat/migrations"
+	"context"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
+	ctx := context.Background()
+
 	cfg := config.Load()
 
-	log.Printf("Connecting to Worker Service at %s...", cfg.WorkerAddr)
+	if err := runMigrations(cfg.DatabaseURL); err != nil {
+		log.Fatalf("Ошибка при выполнении миграций: %v", err)
+	}
 
-    workerAddr := cfg.WorkerAddr
-    grpcConn, err := grpc.NewClient(workerAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-    if err != nil {
-        log.Fatalf("Failed to connect to worker service: %v", err)
-    }
-    defer grpcConn.Close()
-    workerClient := worker.NewGRPCWorkerClient(grpcConn)
+	dbPool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("Не удалось подключиться к БД: %v", err)
+	}
+	defer dbPool.Close()
+
+	if err := dbPool.Ping(ctx); err != nil {
+		log.Fatalf("База данных не отвечает: %v", err)
+	}
+	log.Println("Успешное подключение к PostgreSQL!")
 
 	wsManager := websocket.NewManager()
-	chatService := service.NewChatService(wsManager, workerClient)
-	chatHandler := handler.NewChatHandler(chatService)
 
 	http.Handle("/", http.FileServer(http.Dir("./frontend")))
 	http.HandleFunc("/api/chat/ws", wsManager.ServeWS)
-	http.HandleFunc("/api/chat/messages", chatHandler.PostMessage)
 
 	log.Println("Server is starting on :8080...")
 	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+func runMigrations(dbUrl string) error {
+	d, err := iofs.New(migrations.FS, ".")
+	if err != nil {
+		return fmt.Errorf("ошибка загрузки файлов миграций: %w", err)
+	}
+
+	m, err := migrate.NewWithSourceInstance("iofs", d, dbUrl)
+	if err != nil {
+		return fmt.Errorf("ошибка инициализации мигратора: %w", err)
+	}
+	defer func() {
+		sourceErr, dbErr := m.Close()
+		if sourceErr != nil {
+			log.Printf("Ошибка закрытия источника миграций: %v", sourceErr)
+		}
+		if dbErr != nil {
+			log.Printf("Ошибка закрытия соединения с БД в миграторе: %v", dbErr)
+		}
+	}()
+
+	err = m.Up()
+	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("не удалось применить миграции: %w", err)
+	}
+
+	if errors.Is(err, migrate.ErrNoChange) {
+		log.Println("Миграции не требуются, база в актуальном состоянии.")
+	} else {
+		log.Println("Миграции успешно применены!")
+	}
+
+	return nil
 }
