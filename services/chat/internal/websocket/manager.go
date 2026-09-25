@@ -86,6 +86,7 @@ func (m *Manager) routeMessage() {
 
 		m.RLock()
 		// Пробегаемся по списку получателей
+
 		for _, targetID := range event.TargetUserIDs {
 			// Если получатель сейчас в сети (есть в мапе)
 			if client, ok := m.clients[targetID]; ok {
