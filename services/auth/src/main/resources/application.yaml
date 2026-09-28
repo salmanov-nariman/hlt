@@ -16,3 +16,12 @@ spring:
 jwt:
   secret: ${JWT_SECRET}
   access-expiration: ${ACCESS_EXPIRATION}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus
+  metrics:
+    tags:
+      application: auth-service
