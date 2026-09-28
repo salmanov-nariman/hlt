@@ -3,11 +3,14 @@ kind: Service
 metadata:
   name: auth-service
   namespace: hlt
+  labels:
+    app: auth-service
 
 spec:
   type: ClusterIP
   selector:
     app: auth
   ports:
-    - port: 80
+    - name: http
+      port: 80
       targetPort: 8080
