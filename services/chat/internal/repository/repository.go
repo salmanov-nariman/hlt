@@ -56,7 +56,7 @@ func (r *chatRepo) CreateChat(ctx context.Context, membersIDs []string) (string,
 		return "", fmt.Errorf("failed to insert chat: %w", err)
 	}
 
-	queryUsers := `INSERT INTO chats_members (chat_id, user_id) VALUES ($1, $2)`
+	queryUsers := `INSERT INTO chat_members (chat_id, user_id) VALUES ($1, $2)`
 	for _, uid := range membersIDs {
 		_, err := tx.Exec(ctx, queryUsers, chatID, uid)
 		if err != nil {
