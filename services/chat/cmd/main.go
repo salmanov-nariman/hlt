@@ -47,8 +47,8 @@ func main() {
 	chatService := service.NewChatService(wsManager, chatRepo)
 	chatHandler := handler.NewChatHandler(chatService)
 
-	http.HandleFunc("/api/messages", middleware.REDMetricsMiddleware("/api/messages", chatHandler.PostMessage))
-	http.HandleFunc("/api/chats", middleware.REDMetricsMiddleware("/api/chats", chatHandler.CreateChat))
+	http.HandleFunc("/api/chat/messages", middleware.REDMetricsMiddleware("/api/chat/messages", chatHandler.PostMessage))
+	http.HandleFunc("/api/chat/createChat", middleware.REDMetricsMiddleware("/api/chat/createChat", chatHandler.CreateChat))
 
 	http.Handle("/", http.FileServer(http.Dir("./frontend")))
 	http.HandleFunc("/api/chat/ws", wsManager.ServeWS)

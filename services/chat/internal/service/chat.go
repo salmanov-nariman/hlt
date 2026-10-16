@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 )
 
 type ChatService struct {
@@ -21,28 +22,68 @@ func NewChatService(wsManager *websocket.Manager, repo repository.ChatRepository
 	}
 }
 
-func (s *ChatService) ProcessMessage(ctx context.Context, senderID, roomID string, text string) error {
-	log.Printf("[DB] Сохраняем сообщение от %s в БД для чата %s...", senderID, roomID)
-	log.Printf("[gRPC] Отправляем запрос GetDuoMembers(duo_id: %s) в Worker сервис...", roomID)
+func (s *ChatService) ProcessMessage(
+    ctx context.Context,
+    senderID string,
+    roomID string,
+    text string,
+) error {
 
-	targetUserIDs, err := s.chatRepository.GetUsersInChat(ctx, roomID)
-	if err != nil {
-		return fmt.Errorf("access denied or worker error: %w", err)
-	}
-	log.Printf("[gRPC] Ответ от Worker сервиса получен. Участники: %v", targetUserIDs)
+    targetUserIDs, err := s.chatRepository.GetUsersInChat(ctx, roomID)
+    if err != nil {
+        return fmt.Errorf("failed to get chat members: %w", err)
+    }
 
-	chatMsg := websocket.ChatMessage{Text: text}
-	payloadBytes, _ := json.Marshal(chatMsg)
+    isMember := false
 
-	log.Printf("[WebSocket] Передаем событие в менеджер для рассылки...")
-	s.wsManager.BroadcastEvent(websocket.Event{
-		Type:          "new_message",
-		RoomID:        roomID,
-		Payload:       payloadBytes,
-		TargetUserIDs: targetUserIDs,
-	})
+    for _, uid := range targetUserIDs {
+        if uid == senderID {
+            isMember = true
+            break
+        }
+    }
 
-	return nil
+    if !isMember {
+        return fmt.Errorf("sender is not a member of this chat")
+    }
+
+    if strings.TrimSpace(text) == "" {
+        return fmt.Errorf("message cannot be empty")
+    }
+
+    err = s.chatRepository.SaveMessage(
+        ctx,
+        roomID,
+        senderID,
+        text,
+    )
+    if err != nil {
+        return fmt.Errorf("failed to save message: %w", err)
+    }
+
+    log.Printf(
+        "[DB] Message saved successfully: sender=%s, chat=%s",
+        senderID,
+        roomID,
+    )
+
+    chatMsg := websocket.ChatMessage{
+        Text: text,
+    }
+
+    payloadBytes, err := json.Marshal(chatMsg)
+    if err != nil {
+        return fmt.Errorf("failed to marshal message: %w", err)
+    }
+
+    s.wsManager.BroadcastEvent(websocket.Event{
+        Type:          "new_message",
+        RoomID:        roomID,
+        Payload:       payloadBytes,
+        TargetUserIDs: targetUserIDs,
+    })
+
+    return nil
 }
 
 func (s *ChatService) CreateChat(ctx context.Context, senderID string, invitedIDs []string) (string, error) {

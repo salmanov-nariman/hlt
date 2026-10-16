@@ -3,11 +3,14 @@ kind: Service
 metadata:
   name: chat-service
   namespace: hlt
+  labels:
+    app: chat-service
 
 spec:
   type: ClusterIP
   selector:
     app: chat
   ports:
-    - port: 80
+    - name: http
+      port: 80
       targetPort: 8080

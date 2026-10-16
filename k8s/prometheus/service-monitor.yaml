@@ -4,7 +4,7 @@ metadata:
   name: auth-service-monitor
   namespace: hlt
   labels:
-    release: prometheus
+    release: monitoring
 spec:
   selector:
     matchLabels:

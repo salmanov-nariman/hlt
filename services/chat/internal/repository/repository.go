@@ -10,6 +10,7 @@ import (
 type ChatRepository interface {
 	GetUsersInChat(ctx context.Context, chatID string) ([]string, error)
 	CreateChat(ctx context.Context, membersIDs []string) (string, error)
+	SaveMessage(ctx context.Context, chatID, senderID, text string) error
 }
 
 type chatRepo struct {
@@ -20,6 +21,25 @@ func NewChatRepository(db *pgxpool.Pool) ChatRepository {
 	return &chatRepo{
 		db: db,
 	}
+}
+
+func (r *chatRepo) SaveMessage(
+    ctx context.Context,
+    chatID string,
+    senderID string,
+    text string,
+) error {
+    query := `
+        INSERT INTO messages (duo_id, sender_id, content)
+        VALUES ($1, $2, $3)
+    `
+
+    _, err := r.db.Exec(ctx, query, chatID, senderID, text)
+    if err != nil {
+        return fmt.Errorf("failed to save message: %w", err)
+    }
+
+    return nil
 }
 
 func (r *chatRepo) GetUsersInChat(ctx context.Context, chatID string) ([]string, error) {

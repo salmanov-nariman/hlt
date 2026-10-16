@@ -6,6 +6,10 @@ spring:
     url: ${DB_URL}
     username: ${POSTGRES_USER}
     password: ${POSTGRES_PASSWORD}
+    pool:
+      initial-size: 10
+      max-size: 30
+      max-life-time: 30m
 
   flyway:
     enable: true
