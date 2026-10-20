@@ -11,7 +11,8 @@ type Config struct {
 func Load() *Config {
 	return &Config{
 		HTTPPort:    getEnv("HTTP_PORT", "8080"),
-		WorkerAddr:  getEnv("WORKER_SERVICE_ADDR", "worker-service:50051"),
+		// WorkerAddr:  getEnv("WORKER_SERVICE_ADDR", "worker-service:50051"),
+		WorkerAddr:  getEnv("WORKER_SERVICE_ADDR", "localhost:50051"),
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/chat_db?sslmode=disable"),
 	}
 }

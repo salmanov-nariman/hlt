@@ -1,12 +1,14 @@
 package service
 
 import (
+	"chat/internal/domain"
 	"chat/internal/repository"
 	"chat/internal/websocket"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"slices"
 )
 
 type ChatService struct {
@@ -22,16 +24,29 @@ func NewChatService(wsManager *websocket.Manager, repo repository.ChatRepository
 }
 
 func (s *ChatService) ProcessMessage(ctx context.Context, senderID, roomID string, text string) error {
-	log.Printf("[DB] Сохраняем сообщение от %s в БД для чата %s...", senderID, roomID)
 	log.Printf("[gRPC] Отправляем запрос GetDuoMembers(duo_id: %s) в Worker сервис...", roomID)
 
 	targetUserIDs, err := s.chatRepository.GetUsersInChat(ctx, roomID)
 	if err != nil {
 		return fmt.Errorf("access denied or worker error: %w", err)
 	}
-	log.Printf("[gRPC] Ответ от Worker сервиса получен. Участники: %v", targetUserIDs)
+	
+	if !slices.Contains(targetUserIDs, senderID) {
+		return fmt.Errorf("user %s is not member of chat %s", senderID, roomID)
+	}
+
+	msg := &domain.Message{
+		RoomID: roomID,
+		SenderID: senderID,
+		Text: text,
+	}
+
+	if err := s.chatRepository.SaveMessage(ctx, msg); err != nil {
+		return fmt.Errorf("failed to save message: %w", err)
+	}
 
 	chatMsg := websocket.ChatMessage{Text: text}
+
 	payloadBytes, _ := json.Marshal(chatMsg)
 
 	log.Printf("[WebSocket] Передаем событие в менеджер для рассылки...")

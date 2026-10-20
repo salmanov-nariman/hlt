@@ -42,6 +42,10 @@ func main() {
 	log.Println("Успешное подключение к PostgreSQL!")
 
 	wsManager := websocket.NewManager()
+	chatRepository := repository.NewChatRepository(dbPool)
+	chatService := service.NewChatService(wsManager, chatRepository)
+
+	chatHandler := handler.NewChatHandler(chatService)
 
 	chatRepo := repository.NewChatRepository(dbPool)
 	chatService := service.NewChatService(wsManager, chatRepo)
@@ -52,6 +56,8 @@ func main() {
 
 	http.Handle("/", http.FileServer(http.Dir("./frontend")))
 	http.HandleFunc("/api/chat/ws", wsManager.ServeWS)
+	http.HandleFunc("/api/createchat", chatHandler.CreateChat)
+	http.HandleFunc("/api/message", chatHandler.PostMessage)
 
 	http.Handle("/metrics", promhttp.Handler())
 
