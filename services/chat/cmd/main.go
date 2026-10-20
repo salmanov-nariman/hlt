@@ -6,6 +6,7 @@ import (
 	"chat/internal/repository"
 	"chat/internal/service"
 	"chat/internal/websocket"
+	"chat/middleware"
 	"chat/migrations"
 	"context"
 	"errors"
@@ -17,6 +18,7 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -45,10 +47,19 @@ func main() {
 
 	chatHandler := handler.NewChatHandler(chatService)
 
+	chatRepo := repository.NewChatRepository(dbPool)
+	chatService := service.NewChatService(wsManager, chatRepo)
+	chatHandler := handler.NewChatHandler(chatService)
+
+	http.HandleFunc("/api/messages", middleware.REDMetricsMiddleware("/api/messages", chatHandler.PostMessage))
+	http.HandleFunc("/api/chats", middleware.REDMetricsMiddleware("/api/chats", chatHandler.CreateChat))
+
 	http.Handle("/", http.FileServer(http.Dir("./frontend")))
 	http.HandleFunc("/api/chat/ws", wsManager.ServeWS)
 	http.HandleFunc("/api/createchat", chatHandler.CreateChat)
 	http.HandleFunc("/api/message", chatHandler.PostMessage)
+
+	http.Handle("/metrics", promhttp.Handler())
 
 	log.Println("Server is starting on :8080...")
 	log.Fatal(http.ListenAndServe(":8080", nil))
