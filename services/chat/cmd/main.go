@@ -2,6 +2,9 @@ package main
 
 import (
 	"chat/config"
+	"chat/internal/handler"
+	"chat/internal/repository"
+	"chat/internal/service"
 	"chat/internal/websocket"
 	"chat/migrations"
 	"context"
@@ -37,9 +40,15 @@ func main() {
 	log.Println("Успешное подключение к PostgreSQL!")
 
 	wsManager := websocket.NewManager()
+	chatRepository := repository.NewChatRepository(dbPool)
+	chatService := service.NewChatService(wsManager, chatRepository)
+
+	chatHandler := handler.NewChatHandler(chatService)
 
 	http.Handle("/", http.FileServer(http.Dir("./frontend")))
 	http.HandleFunc("/api/chat/ws", wsManager.ServeWS)
+	http.HandleFunc("/api/createchat", chatHandler.CreateChat)
+	http.HandleFunc("/api/message", chatHandler.PostMessage)
 
 	log.Println("Server is starting on :8080...")
 	log.Fatal(http.ListenAndServe(":8080", nil))

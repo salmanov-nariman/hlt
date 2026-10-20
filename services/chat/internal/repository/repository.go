@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"chat/internal/domain"
 	"context"
 	"fmt"
 
@@ -10,6 +11,7 @@ import (
 type ChatRepository interface {
 	GetUsersInChat(ctx context.Context, chatID string) ([]string, error)
 	CreateChat(ctx context.Context, membersIDs []string) (string, error)
+	SaveMessage(ctx context.Context, msg *domain.Message) error
 }
 
 type chatRepo struct {
@@ -20,6 +22,19 @@ func NewChatRepository(db *pgxpool.Pool) ChatRepository {
 	return &chatRepo{
 		db: db,
 	}
+}
+
+func (r *chatRepo) SaveMessage(ctx context.Context, msg *domain.Message) error {
+	query := `INSERT INTO messages (duo_id, sender_id, content)
+			  VALUES ($1, $2, $3)
+			  RETURNING id, created_at
+	`
+	
+	if _, err := r.db.Exec(ctx, query, msg.RoomID, msg.SenderID, msg.Text); err != nil {
+		return fmt.Errorf("failed to insert message %s", err)
+	}
+
+	return nil
 }
 
 func (r *chatRepo) GetUsersInChat(ctx context.Context, chatID string) ([]string, error) {
@@ -56,7 +71,7 @@ func (r *chatRepo) CreateChat(ctx context.Context, membersIDs []string) (string,
 		return "", fmt.Errorf("failed to insert chat: %w", err)
 	}
 
-	queryUsers := `INSERT INTO chats_members (chat_id, user_id) VALUES ($1, $2)`
+	queryUsers := `INSERT INTO chat_members (chat_id, user_id) VALUES ($1, $2)`
 	for _, uid := range membersIDs {
 		_, err := tx.Exec(ctx, queryUsers, chatID, uid)
 		if err != nil {

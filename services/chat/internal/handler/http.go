@@ -3,6 +3,7 @@ package handler
 import (
 	"chat/internal/service"
 	"encoding/json"
+	"log"
 	"net/http"
 )
 
@@ -74,6 +75,8 @@ func (h *ChatHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
 
 	chatID, err := h.chatService.CreateChat(r.Context(), senderID, req.MemberIDs)
 	if err != nil {
+		log.Printf("[ERROR] Не удалось создать чат: %v", err)
+
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
