@@ -47,10 +47,6 @@ func main() {
 
 	chatHandler := handler.NewChatHandler(chatService)
 
-	chatRepo := repository.NewChatRepository(dbPool)
-	chatService := service.NewChatService(wsManager, chatRepo)
-	chatHandler := handler.NewChatHandler(chatService)
-
 	http.HandleFunc("/api/messages", middleware.REDMetricsMiddleware("/api/messages", chatHandler.PostMessage))
 	http.HandleFunc("/api/chats", middleware.REDMetricsMiddleware("/api/chats", chatHandler.CreateChat))
 
