@@ -5,6 +5,7 @@ import (
 	"chat/internal/service"
 	"chat/internal/websocket"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -88,7 +89,7 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 		},
 
 		saveMessageFunc: func(ctx context.Context, msg *domain.Message) error {
-			if msg.RoomID != roomID || msg.Text != text {
+			if msg.RoomID != roomID || msg.Text != text || msg.SenderID != senderID {
 				t.Errorf("неверные данные для сохранения: %+v", msg)
 			}
 			msg.ID = "msg_1"
@@ -101,7 +102,25 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 		broadcastEventFunc: func(event websocket.Event) {
 			wsCalled = true
 			if event.Type != "new_message" || event.RoomID != roomID {
-				t.Errorf("неверные данные в событии вебсокета: %+v", event)
+				t.Errorf("неверный тип сообщения или roomID: %+v", event)
+			}
+
+			if len(event.TargetUserIDs) == 0 {
+				t.Errorf("ошибка: пустой TargetUserIDs")
+			}
+			
+			expectedUsers := []string{"good_user_1", "good_user_2"}
+			if !slices.Equal(event.TargetUserIDs, expectedUsers) {
+				t.Errorf("ожидались получатели %v, получено %v", expectedUsers, event.TargetUserIDs)
+			}
+
+			var chatMsg websocket.ChatMessage
+			if err := json.Unmarshal(event.Payload, &chatMsg); err != nil {
+            	t.Errorf("ошибка распаковки Payload: %v", err)
+        	}
+
+			if chatMsg.Text != text {
+				t.Errorf("ожидался текст '%s', получено: '%s'", text, chatMsg.Text)
 			}
 		},
 	}
