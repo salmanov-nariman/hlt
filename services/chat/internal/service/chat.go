@@ -2,21 +2,29 @@ package service
 
 import (
 	"chat/internal/domain"
-	"chat/internal/repository"
 	"chat/internal/websocket"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"slices"
 )
 
-type ChatService struct {
-	wsManager      *websocket.Manager
-	chatRepository repository.ChatRepository
+type WSBroadcaster interface {
+	BroadcastEvent(event websocket.Event)
 }
 
-func NewChatService(wsManager *websocket.Manager, repo repository.ChatRepository) *ChatService {
+type ChatRepository interface {
+	GetUsersInChat(ctx context.Context, chatID string) ([]string, error)
+	CreateChat(ctx context.Context, membersIDs []string) (string, error)
+	SaveMessage(ctx context.Context, msg *domain.Message) error
+}
+
+type ChatService struct {
+	wsManager      WSBroadcaster
+	chatRepository ChatRepository
+}
+
+func NewChatService(wsManager WSBroadcaster, repo ChatRepository) *ChatService {
 	return &ChatService{
 		wsManager:      wsManager,
 		chatRepository: repo,
@@ -24,15 +32,13 @@ func NewChatService(wsManager *websocket.Manager, repo repository.ChatRepository
 }
 
 func (s *ChatService) ProcessMessage(ctx context.Context, senderID, roomID string, text string) error {
-	log.Printf("[gRPC] Отправляем запрос GetDuoMembers(duo_id: %s) в Worker сервис...", roomID)
-
 	targetUserIDs, err := s.chatRepository.GetUsersInChat(ctx, roomID)
 	if err != nil {
-		return fmt.Errorf("access denied or worker error: %w", err)
+		return fmt.Errorf("failed to get users: %w", err)
 	}
 	
 	if !slices.Contains(targetUserIDs, senderID) {
-		return fmt.Errorf("user %s is not member of chat %s", senderID, roomID)
+		return fmt.Errorf("user %s is not member of room %s", senderID, roomID)
 	}
 
 	msg := &domain.Message{
@@ -48,8 +54,6 @@ func (s *ChatService) ProcessMessage(ctx context.Context, senderID, roomID strin
 	chatMsg := websocket.ChatMessage{Text: text}
 
 	payloadBytes, _ := json.Marshal(chatMsg)
-
-	log.Printf("[WebSocket] Передаем событие в менеджер для рассылки...")
 	s.wsManager.BroadcastEvent(websocket.Event{
 		Type:          "new_message",
 		RoomID:        roomID,

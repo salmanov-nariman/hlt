@@ -8,23 +8,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type ChatRepository interface {
-	GetUsersInChat(ctx context.Context, chatID string) ([]string, error)
-	CreateChat(ctx context.Context, membersIDs []string) (string, error)
-	SaveMessage(ctx context.Context, msg *domain.Message) error
-}
 
-type chatRepo struct {
+
+type ChatRepository struct {
 	db *pgxpool.Pool
 }
 
-func NewChatRepository(db *pgxpool.Pool) ChatRepository {
-	return &chatRepo{
-		db: db,
-	}
+func NewChatRepository(db *pgxpool.Pool) *ChatRepository {
+	return &ChatRepository{db: db}
 }
 
-func (r *chatRepo) SaveMessage(ctx context.Context, msg *domain.Message) error {
+func (r *ChatRepository) SaveMessage(ctx context.Context, msg *domain.Message) error {
 	query := `INSERT INTO messages (duo_id, sender_id, content)
 			  VALUES ($1, $2, $3)
 			  RETURNING id, created_at
@@ -37,7 +31,7 @@ func (r *chatRepo) SaveMessage(ctx context.Context, msg *domain.Message) error {
 	return nil
 }
 
-func (r *chatRepo) GetUsersInChat(ctx context.Context, chatID string) ([]string, error) {
+func (r *ChatRepository) GetUsersInChat(ctx context.Context, chatID string) ([]string, error) {
 	query := "SELECT user_id FROM chat_members WHERE chat_id = $1"
 
 	rows, err := r.db.Query(ctx, query, chatID)
@@ -58,7 +52,7 @@ func (r *chatRepo) GetUsersInChat(ctx context.Context, chatID string) ([]string,
 	return userIDs, nil
 }
 
-func (r *chatRepo) CreateChat(ctx context.Context, membersIDs []string) (string, error) {
+func (r *ChatRepository) CreateChat(ctx context.Context, membersIDs []string) (string, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to begin transaction: %w", err)
