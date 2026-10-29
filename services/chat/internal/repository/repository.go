@@ -3,12 +3,17 @@ package repository
 import (
 	"chat/internal/domain"
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-
+var (
+    ErrMessageConflict      = errors.New("client_message_id conflict with different text")
+    ErrMessageAlreadyExists = errors.New("message already exists")
+)
 
 type ChatRepository struct {
 	db *pgxpool.Pool
@@ -19,13 +24,46 @@ func NewChatRepository(db *pgxpool.Pool) *ChatRepository {
 }
 
 func (r *ChatRepository) SaveMessage(ctx context.Context, msg *domain.Message) error {
-	query := `INSERT INTO messages (duo_id, sender_id, content)
-			  VALUES ($1, $2, $3)
-			  RETURNING id, created_at
+	var existingID, existingText string
+	var existingCreatedAt time.Time
+	var existingSequence int64
+
+	checkQuery := `
+		SELECT id, content, created_at, sequence
+		FROM messages
+		WHERE chat_id=$1 AND client_message_id=$2 AND sender_id=$3
+	`
+	err := r.db.QueryRow(ctx, checkQuery, msg.ChatID, msg.ClientMessageID, msg.SenderID).Scan(&existingID, &existingText, &existingCreatedAt, &existingSequence)
+
+	if err == nil {
+		if existingText != msg.Text {
+			return ErrMessageConflict // 409
+		}
+
+		msg.ID = existingID
+		msg.CreatedAT = existingCreatedAt
+		msg.Sequence = existingSequence
+		return ErrMessageAlreadyExists // 200 OK
+	}
+
+	query := `
+		WITH updated_chat AS (
+			UPDATE chats
+			SET last_sequence = last_sequence + 1,
+                revision = revision + 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            RETURNING last_sequence
+        )
+		INSERT INTO messages (chat_id, sender_id, client_message_id, content, sequence)
+		SELECT $1, $2, $3, $4, updated_chat.last_sequence
+		FROM updated_chat
+		RETURNING id, created_at, sequence
 	`
 	
-	if _, err := r.db.Exec(ctx, query, msg.RoomID, msg.SenderID, msg.Text); err != nil {
-		return fmt.Errorf("failed to insert message %s", err)
+	err = r.db.QueryRow(ctx, query, msg.ChatID, msg.SenderID, msg.ClientMessageID, msg.Text).Scan(&msg.ID, &msg.CreatedAT, &msg.Sequence)
+	if err != nil {
+		return fmt.Errorf("failed to insert message and update chat: %w", err)
 	}
 
 	return nil
