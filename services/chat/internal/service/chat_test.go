@@ -25,13 +25,13 @@ func (m *mockWSBroadcaster) BroadcastEvent(event websocket.Event) {
 }
 
 type mockChatRepository struct {
-	getUsersInChatFunc func(ctx context.Context, roomID string) ([]string, error)
+	getUsersInChatFunc func(ctx context.Context, chatID string) ([]string, error)
 	saveMessageFunc func(ctx context.Context, msg *domain.Message) error
 	createChatFunc func(ctx context.Context, invitedIDs []string) (string, error)
 }
 
-func (m *mockChatRepository) GetUsersInChat(ctx context.Context, roomID string) ([]string, error) {
-	return m.getUsersInChatFunc(ctx, roomID)
+func (m *mockChatRepository) GetUsersInChat(ctx context.Context, chatID string) ([]string, error) {
+	return m.getUsersInChatFunc(ctx, chatID)
 }
 
 func (m *mockChatRepository) SaveMessage(ctx context.Context, msg *domain.Message) error {
@@ -45,13 +45,14 @@ func (m *mockChatRepository) CreateChat(ctx context.Context, invitedIDs []string
 
 func TestChatService_ProcessMessage_UserNotMember(t *testing.T) {
 	ctx := context.Background()
-	roomID := "room_1"
+	chatID := "chat_1"
 	senderID := "bad_user_1"
+	clientMsgID := "client_uuid_1"
 
 	mockRepo := &mockChatRepository{
 		getUsersInChatFunc: func(ctx context.Context, requestedRoomID string) ([]string, error) {
-			if requestedRoomID != roomID {
-				t.Errorf("ожидался запрос для комнаты %s, получено: %s", roomID, requestedRoomID)
+			if requestedRoomID != chatID {
+				t.Errorf("ожидался запрос для комнаты %s, получено: %s", chatID, requestedRoomID)
 			}
 			return []string{"good_user_1", "good_user_2"}, nil
 		},
@@ -64,13 +65,16 @@ func TestChatService_ProcessMessage_UserNotMember(t *testing.T) {
 
 	svc := service.NewChatService(nil, mockRepo)
 
-	err := svc.ProcessMessage(ctx, senderID, roomID, "Пытаюсь что-то написать")
+	msg, err := svc.ProcessMessage(ctx, senderID, chatID, clientMsgID, "Пытаюсь что-то написать")
 
 	if err == nil {
 		t.Fatal("ожидалась ошибка доступа, но метод вернул nil")
 	}
+	if msg != nil {
+		t.Errorf("ожидалось, что сообщение будет nil, получено: %+v", msg)
+	}
 
-	expectedErrorText := fmt.Sprintf("user %s is not member of room %s", senderID, roomID)
+	expectedErrorText := fmt.Sprintf("user %s is not member of room %s", senderID, chatID)
 	if err.Error() != expectedErrorText {
 		t.Errorf("ожидался текст ошибки '%s', получено: '%v'", expectedErrorText, err)
 	}
@@ -79,8 +83,9 @@ func TestChatService_ProcessMessage_UserNotMember(t *testing.T) {
 
 func TestChatService_ProcessMessage_Success(t *testing.T) {
 	ctx := context.Background()
-	roomID := "room_1"
+	chatID := "chat_1"
 	senderID := "good_user_1"
+	clientMsgID := "client_uuid_1"
 	text := "Привет всем!"
 
 	mockRepo := &mockChatRepository{
@@ -89,7 +94,7 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 		},
 
 		saveMessageFunc: func(ctx context.Context, msg *domain.Message) error {
-			if msg.RoomID != roomID || msg.Text != text || msg.SenderID != senderID {
+			if msg.ChatID != chatID || msg.Text != text || msg.SenderID != senderID {
 				t.Errorf("неверные данные для сохранения: %+v", msg)
 			}
 			msg.ID = "msg_1"
@@ -101,8 +106,8 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 	mockWS := &mockWSBroadcaster{
 		broadcastEventFunc: func(event websocket.Event) {
 			wsCalled = true
-			if event.Type != "new_message" || event.RoomID != roomID {
-				t.Errorf("неверный тип сообщения или roomID: %+v", event)
+			if event.Type != websocket.EventTypeMessageCreated || event.ChatID != chatID {
+				t.Errorf("неверный тип сообщения или chatID: %+v", event)
 			}
 
 			if len(event.TargetUserIDs) == 0 {
@@ -114,7 +119,7 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 				t.Errorf("ожидались получатели %v, получено %v", expectedUsers, event.TargetUserIDs)
 			}
 
-			var chatMsg websocket.ChatMessage
+			var chatMsg domain.Message
 			if err := json.Unmarshal(event.Payload, &chatMsg); err != nil {
             	t.Errorf("ошибка распаковки Payload: %v", err)
         	}
@@ -122,15 +127,24 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 			if chatMsg.Text != text {
 				t.Errorf("ожидался текст '%s', получено: '%s'", text, chatMsg.Text)
 			}
+			if chatMsg.ClientMessageID != clientMsgID {
+				t.Errorf("ожидался ClientMessageID '%s', получено: '%s'", clientMsgID, chatMsg.ClientMessageID)
+			}
 		},
 	}
 
 	svc := service.NewChatService(mockWS, mockRepo)
 
-	err := svc.ProcessMessage(ctx, senderID, roomID, text)
+	msg, err := svc.ProcessMessage(ctx, senderID, chatID, clientMsgID, text)
 
 	if err != nil {
 		t.Fatalf("ожидался успех, но получена ошибка: %v", err)
+	}
+	if msg == nil {
+		t.Fatal("ожидалось сообщение, но получен nil")
+	}
+	if msg.ID != "msg_1" {
+		t.Errorf("ожидался ID 'msg_1', получено: '%s'", msg.ID)
 	}
 
 	if !wsCalled {
@@ -140,7 +154,7 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 
 func TestChatService_CreateChat_Success(t *testing.T) {
 	ctx := context.Background()
-	expectedRoomID := "new_room_2"
+	expectedRoomID := "new_chat_2"
 	
 	senderID := "user_1"
 	invitedIDs := []string{"user_2", "user_2", "user_3"} 
@@ -164,13 +178,13 @@ func TestChatService_CreateChat_Success(t *testing.T) {
 
 	svc := service.NewChatService(nil, mockRepo)
 
-	roomID, err := svc.CreateChat(ctx, senderID, invitedIDs)
+	chatID, err := svc.CreateChat(ctx, senderID, invitedIDs)
 
 	if err != nil {
 		t.Fatalf("ожидался успех, но получена ошибка: %v", err)
 	}
-	if roomID != expectedRoomID {
-		t.Errorf("ожидался ID комнаты %s, получено: %s", expectedRoomID, roomID)
+	if chatID != expectedRoomID {
+		t.Errorf("ожидался ID комнаты %s, получено: %s", expectedRoomID, chatID)
 	}
 }
 
@@ -178,17 +192,20 @@ func TestChatService_ProcessMessage_DBError(t *testing.T) {
 	ctx := context.Background()
 
 	mockRepo := &mockChatRepository{
-		getUsersInChatFunc: func(ctx context.Context, roomID string) ([]string, error) {
+		getUsersInChatFunc: func(ctx context.Context, chatID string) ([]string, error) {
 			return nil, errors.New("db connections lost")
 		},
 	}
 
 	svc := service.NewChatService(nil, mockRepo)
 
-	err := svc.ProcessMessage(ctx, "user_1", "room_1", "something test")
+	msg, err := svc.ProcessMessage(ctx, "user_1", "chat_1", "client_uuid_1", "something test")
 
 	if err == nil {
 		t.Fatal("ожидалась ошибка базы данных, но метод вернул nil")
+	}
+	if msg != nil {
+		t.Errorf("ожидалось, что сообщение будет nil, получено: %+v", msg)
 	}
 
 	expectedErrPrefix := "failed to get users"

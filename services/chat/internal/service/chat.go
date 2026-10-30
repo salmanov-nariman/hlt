@@ -2,9 +2,11 @@ package service
 
 import (
 	"chat/internal/domain"
+	"chat/internal/repository"
 	"chat/internal/websocket"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 )
@@ -31,37 +33,40 @@ func NewChatService(wsManager WSBroadcaster, repo ChatRepository) *ChatService {
 	}
 }
 
-func (s *ChatService) ProcessMessage(ctx context.Context, senderID, roomID string, text string) error {
-	targetUserIDs, err := s.chatRepository.GetUsersInChat(ctx, roomID)
+func (s *ChatService) ProcessMessage(ctx context.Context, senderID, chatID, clientMessageID, text string) (*domain.Message, error) {
+	targetUserIDs, err := s.chatRepository.GetUsersInChat(ctx, chatID)
 	if err != nil {
-		return fmt.Errorf("failed to get users: %w", err)
+		return nil, fmt.Errorf("failed to get users: %w", err)
 	}
 	
 	if !slices.Contains(targetUserIDs, senderID) {
-		return fmt.Errorf("user %s is not member of room %s", senderID, roomID)
+		return nil, fmt.Errorf("user %s is not member of room %s", senderID, chatID)
 	}
 
 	msg := &domain.Message{
-		RoomID: roomID,
+		ChatID: chatID,
 		SenderID: senderID,
+		ClientMessageID: clientMessageID,
 		Text: text,
 	}
 
-	if err := s.chatRepository.SaveMessage(ctx, msg); err != nil {
-		return fmt.Errorf("failed to save message: %w", err)
+	err = s.chatRepository.SaveMessage(ctx, msg)
+	if err != nil {
+		if errors.Is(err, repository.ErrMessageAlreadyExists) || errors.Is(err, repository.ErrMessageConflict) {
+			return msg, err
+		}
+		return nil, fmt.Errorf("failed to save message: %w", err)
 	}
 
-	chatMsg := websocket.ChatMessage{Text: text}
-
-	payloadBytes, _ := json.Marshal(chatMsg)
+	payloadBytes, _ := json.Marshal(msg)
 	s.wsManager.BroadcastEvent(websocket.Event{
-		Type:          "new_message",
-		RoomID:        roomID,
+		Type:          websocket.EventTypeMessageCreated,
+		ChatID:        chatID,
 		Payload:       payloadBytes,
 		TargetUserIDs: targetUserIDs,
 	})
 
-	return nil
+	return msg, nil
 }
 
 func (s *ChatService) CreateChat(ctx context.Context, senderID string, invitedIDs []string) (string, error) {

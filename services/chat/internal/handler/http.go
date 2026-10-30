@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"chat/internal/repository"
 	"chat/internal/service"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 )
@@ -28,7 +30,8 @@ func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		RoomID string `json:"room_id"`
+		ChatID string `json:"chat_id"`
+		ClientMessageID string `json:"client_message_id"`
 		Text   string `json:"text"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -36,16 +39,28 @@ func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.chatService.ProcessMessage(r.Context(), senderID, req.RoomID, req.Text); err != nil {
+	msg, err := h.chatService.ProcessMessage(r.Context(), senderID, req.ChatID, req.ClientMessageID, req.Text)
+	
+	w.Header().Set("Content-Type", "application/json")
+
+	if err != nil {
+		if errors.Is(err, repository.ErrMessageConflict) {
+			w.WriteHeader(http.StatusConflict) // 409
+			w.Write([]byte(`{"code":"CLIENT_MESSAGE_ID_CONFLICT"}`))
+			return
+		} else if errors.Is(err, repository.ErrMessageAlreadyExists) {
+			w.WriteHeader(http.StatusOK) // 200 OK
+			json.NewEncoder(w).Encode(msg)
+			return
+		}
+
+		log.Printf("ProcessMessage error: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
-		http.Error(w, "Invalid write response", http.StatusBadRequest)
-	}
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(msg)
 }
 
 func (h *ChatHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
