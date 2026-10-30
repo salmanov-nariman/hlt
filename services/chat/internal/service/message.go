@@ -19,7 +19,7 @@ func (s *ChatService) ProcessMessage(ctx context.Context, senderID, chatID, clie
 	}
 	
 	if !slices.Contains(memberIDs, senderID) {
-		return nil, fmt.Errorf("user %s is not member of room %s", senderID, chatID)
+		return nil, fmt.Errorf("user %s is not member of chat %s", senderID, chatID)
 	}
 
 	msg := &domain.Message{
@@ -56,7 +56,7 @@ func (s *ChatService) SyncMessages(ctx context.Context, senderID, chatID string,
 	}
 
 	if !slices.Contains(memberIDs, senderID) {
-		return nil, fmt.Errorf("user %s is not member of room %s", senderID, chatID)
+		return nil, fmt.Errorf("user %s is not member of chat %s", senderID, chatID)
 	}
 
 	if limit <= 0 || limit > 100 {

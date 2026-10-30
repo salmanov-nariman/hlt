@@ -46,7 +46,7 @@ func TestChatService_ProcessMessage_UserNotMember(t *testing.T) {
 		t.Errorf("ожидалось, что сообщение будет nil, получено: %+v", msg)
 	}
 
-	expectedErrorText := fmt.Sprintf("user %s is not member of room %s", senderID, chatID)
+	expectedErrorText := fmt.Sprintf("user %s is not member of chat %s", senderID, chatID)
 	if err.Error() != expectedErrorText {
 		t.Errorf("ожидался текст ошибки '%s', получено: '%v'", expectedErrorText, err)
 	}
