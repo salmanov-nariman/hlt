@@ -7,6 +7,8 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 )
 
 type ChatHandler struct {
@@ -102,4 +104,55 @@ func (h *ChatHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"chat_id": chatID,
 	})
+}
+
+
+func (h *ChatHandler) SyncMessages(w http.ResponseWriter, r *http.Request) {
+	senderID := r.Header.Get("X-User-Id")
+	if senderID == "" {
+		http.Error(w, "X-User-Id header is missing", http.StatusBadRequest)
+		return
+	}
+
+	chatID := r.URL.Query().Get("chat_id")
+	if chatID == "" {
+		http.Error(w, "missing chat_id query parameter", http.StatusBadRequest)
+		return
+	}
+
+	var afterSequence int64
+	afterSeqStr := r.URL.Query().Get("after_sequence")
+	if afterSeqStr != "" {
+		parsedSeq, err := strconv.ParseInt(afterSeqStr, 10, 64)
+		if err != nil {
+			http.Error(w, "invalid after_sequence parameter", http.StatusBadRequest)
+			return
+		}
+		afterSequence = parsedSeq
+	}
+
+	limit := 50
+	limitStr := r.URL.Query().Get("limit")
+	if limitStr != "" {
+		parsedLimit, err := strconv.Atoi(limitStr)
+		if err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+
+	messages, err := h.chatService.SyncMessages(r.Context(), senderID, chatID, afterSequence, limit)
+	if err != nil {
+		if strings.Contains(err.Error(), "is not member of chat") {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return 
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(messages); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
 }

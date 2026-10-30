@@ -49,6 +49,7 @@ func main() {
 
 	http.HandleFunc("/api/messages", middleware.REDMetricsMiddleware("/api/messages", chatHandler.PostMessage))
 	http.HandleFunc("/api/chats", middleware.REDMetricsMiddleware("/api/chats", chatHandler.CreateChat))
+	http.HandleFunc("/api/chat/messages", middleware.REDMetricsMiddleware("/api/chat/messages", chatHandler.SyncMessages))
 
 	http.Handle("/", http.FileServer(http.Dir("./frontend")))
 	http.HandleFunc("/api/chat/ws", wsManager.ServeWS)
