@@ -72,6 +72,9 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 			msg.ID = "msg_1"
 			return nil
 		},
+		updateReadStatusFunc: func(ctx context.Context, reqChatID, reqUserID string, reqSeq int64) error {
+            return nil
+        },
 	}
 
 	wsCalled := false
@@ -183,4 +186,52 @@ func TestChatService_ProcessMessage_DBError(t *testing.T) {
 	if !strings.HasPrefix(err.Error(), expectedErrPrefix) {
 		t.Errorf("ожидалось, что ошибка начнется с '%s', получено: '%v'", expectedErrPrefix, err)
 	}
+}
+
+func TestChatService_UpdateReadStatus_Success(t *testing.T) {
+    ctx := context.Background()
+    chatID := "chat_1"
+    userID := "good_user_1"
+    sequence := int64(15)
+
+    mockRepo := &mockChatRepository{
+        getUsersInChatFunc: func(ctx context.Context, requestedRoomID string) ([]string, error) {
+            return []string{"good_user_1", "good_user_2"}, nil
+        },
+
+        updateReadStatusFunc: func(ctx context.Context, reqChatID, reqUserID string, reqSeq int64) error {
+            if reqChatID != chatID || reqUserID != userID || reqSeq != sequence {
+                t.Errorf("неверные данные для обновления: chatID=%s, userID=%s, seq=%d", reqChatID, reqUserID, reqSeq)
+            }
+            return nil
+        },
+    }
+
+    wsCalled := false
+    mockWS := &mockWSBroadcaster{
+        broadcastEventFunc: func(event websocket.Event) {
+            wsCalled = true
+            
+            if event.ChatID != chatID {
+                t.Errorf("неверный chatID в событии: %s", event.ChatID)
+            }
+            
+            expectedUsers := []string{"good_user_1", "good_user_2"}
+            if !slices.Equal(event.TargetUserIDs, expectedUsers) {
+                t.Errorf("ожидались получатели %v, получено %v", expectedUsers, event.TargetUserIDs)
+            }
+        },
+    }
+
+    svc := service.NewChatService(mockWS, mockRepo)
+
+    err := svc.UpdateReadStatus(ctx, chatID, userID, sequence)
+
+    if err != nil {
+        t.Fatalf("ожидался успех, но получена ошибка: %v", err)
+    }
+
+    if !wsCalled {
+        t.Error("ожидалось, что статус прочтения будет разослан в вебсокет, но BroadcastEvent не был вызван")
+    }
 }

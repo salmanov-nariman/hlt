@@ -14,6 +14,8 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/go-chi/chi"
+	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
@@ -44,22 +46,29 @@ func main() {
 	wsManager := websocket.NewManager()
 	chatRepository := repository.NewChatRepository(dbPool)
 	chatService := service.NewChatService(wsManager, chatRepository)
-
 	chatHandler := handler.NewChatHandler(chatService)
 
-	http.HandleFunc("/api/messages", middleware.REDMetricsMiddleware("/api/messages", chatHandler.PostMessage))
-	http.HandleFunc("/api/chats", middleware.REDMetricsMiddleware("/api/chats", chatHandler.CreateChat))
-	http.HandleFunc("/api/chat/messages", middleware.REDMetricsMiddleware("/api/chat/messages", chatHandler.SyncMessages))
+	r := chi.NewRouter()
 
-	http.Handle("/", http.FileServer(http.Dir("./frontend")))
-	http.HandleFunc("/api/chat/ws", wsManager.ServeWS)
-	http.HandleFunc("/api/createchat", chatHandler.CreateChat)
-	http.HandleFunc("/api/message", chatHandler.PostMessage)
+	r.Use(chiMiddleware.Logger)
+	r.Use(chiMiddleware.Recoverer)
 
-	http.Handle("/metrics", promhttp.Handler())
+	r.Route("/api", func(r chi.Router) {
+		r.Post("/chats", middleware.REDMetricsMiddleware("/api/chats", chatHandler.CreateChat))
+		r.Post("/messages", middleware.REDMetricsMiddleware("/api/messages", chatHandler.PostMessage))
+		r.Post("/chat/read", chatHandler.MarkAsRead)
+
+		r.Get("/chat/messages",  middleware.REDMetricsMiddleware("/api/chat/messages", chatHandler.SyncMessages))
+
+		r.Get("/chat/ws", wsManager.ServeWS)
+	})
+
+	r.Handle("/metrics", promhttp.Handler())
+
+	r.Handle("/*", http.FileServer(http.Dir("./frontend")))
 
 	log.Println("Server is starting on :8080...")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe(":8080", r))
 }
 
 func runMigrations(dbUrl string) error {

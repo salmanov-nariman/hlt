@@ -22,6 +22,8 @@ type mockChatRepository struct {
 	saveMessageFunc func(ctx context.Context, msg *domain.Message) error
 	createChatFunc func(ctx context.Context, invitedIDs []string) (string, error)
 	getMessagesAfterFunc func(ctx context.Context, chatID string, afterSequence int64, limit int) ([]domain.Message, error)
+
+	updateReadStatusFunc func(ctx context.Context, chatID, userID string, sequence int64) error
 }
 
 func (m *mockChatRepository) GetUsersInChat(ctx context.Context, chatID string) ([]string, error) {
@@ -38,4 +40,8 @@ func (m *mockChatRepository) CreateChat(ctx context.Context, invitedIDs []string
 
 func (m* mockChatRepository) GetMessagesAfter(ctx context.Context, chatID string, afterSequence int64, limit int) ([]domain.Message, error) {
 	return m.getMessagesAfterFunc(ctx, chatID, afterSequence, limit)
+}
+
+func (m *mockChatRepository) UpdateReadStatus(ctx context.Context, chatID, userID string, sequence int64) error {
+    return m.updateReadStatusFunc(ctx, chatID, userID, sequence)
 }

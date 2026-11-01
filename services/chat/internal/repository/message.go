@@ -1,23 +1,31 @@
 package repository
 
 import (
-	"context"
-	"time"
 	"chat/internal/domain"
+	"context"
 	"fmt"
+	"time"
 )
+
 
 func (r *ChatRepository) SaveMessage(ctx context.Context, msg *domain.Message) error {
 	var existingID, existingContent string
 	var existingCreatedAt time.Time
 	var existingSequence int64
 
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	defer tx.Rollback(ctx)
+
 	checkQuery := `
 		SELECT id, content, created_at, sequence
 		FROM messages
 		WHERE chat_id=$1 AND client_message_id=$2 AND sender_id=$3
 	`
-	err := r.db.QueryRow(ctx, checkQuery, msg.ChatID, msg.ClientMessageID, msg.SenderID).Scan(&existingID, &existingContent, &existingCreatedAt, &existingSequence)
+	err = tx.QueryRow(ctx, checkQuery, msg.ChatID, msg.ClientMessageID, msg.SenderID).Scan(&existingID, &existingContent, &existingCreatedAt, &existingSequence)
 
 	if err == nil {
 		if existingContent != msg.Content {
@@ -45,12 +53,14 @@ func (r *ChatRepository) SaveMessage(ctx context.Context, msg *domain.Message) e
 		RETURNING id, created_at, sequence
 	`
 	
-	err = r.db.QueryRow(ctx, query, msg.ChatID, msg.SenderID, msg.ClientMessageID, msg.Content).Scan(&msg.ID, &msg.CreatedAT, &msg.Sequence)
+	err = tx.QueryRow(ctx, query, msg.ChatID, msg.SenderID, msg.ClientMessageID, msg.Content).Scan(&msg.ID, &msg.CreatedAT, &msg.Sequence)
 	if err != nil {
 		return fmt.Errorf("failed to insert message and update chat: %w", err)
 	}
 
-	return nil
+	err = r.updateLastReadSequence(ctx, tx, msg.ChatID, msg.SenderID, msg.Sequence)
+
+	return tx.Commit(ctx)
 }
 
 func (r *ChatRepository) GetMessagesAfter(ctx context.Context, chatID string, afterSequence int64, limit int) ([]domain.Message, error) {

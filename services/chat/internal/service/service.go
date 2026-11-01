@@ -16,6 +16,7 @@ type ChatRepository interface {
 	CreateChat(ctx context.Context, membersIDs []string) (string, error)
 	SaveMessage(ctx context.Context, msg *domain.Message) error
 	GetMessagesAfter(ctx context.Context, chatID string, afterSequence int64, limit int) ([]domain.Message, error)
+	UpdateReadStatus(ctx context.Context, chatID, userID string, sequence int64) error
 }
 
 type ChatService struct {
