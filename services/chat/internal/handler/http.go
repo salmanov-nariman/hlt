@@ -19,6 +19,7 @@ func NewChatHandler(chatService *service.ChatService) *ChatHandler {
 	return &ChatHandler{chatService: chatService}
 }
 
+
 func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -64,6 +65,7 @@ func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(msg)
 }
+
 
 func (h *ChatHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -155,4 +157,41 @@ func (h *ChatHandler) SyncMessages(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(messages); err != nil {
 		http.Error(w, "failed to encode response", http.StatusInternalServerError)
 	}
+}
+
+
+type MarkReadRequest struct {
+	ChatID string `json:"chat_id"`
+	LastReadSequence int64 `json:"last_read_sequence"`
+}
+
+func (h *ChatHandler) MarkAsRead(w http.ResponseWriter, r *http.Request) {
+	userID := r.Header.Get("X-User-Id")
+	if userID == "" {
+		http.Error(w, "X-User-Id header is missing", http.StatusBadRequest)
+		return
+	}
+
+	var req MarkReadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.ChatID == "" || req.LastReadSequence <= 0 {
+		http.Error(w, "chat_id and valid last_read_sequence are required", http.StatusBadRequest)
+		return
+	}
+
+	err := h.chatService.UpdateReadStatus(r.Context(), req.ChatID, userID, req.LastReadSequence)
+	if err != nil {
+		if strings.Contains(err.Error(), "is not member of chat") {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

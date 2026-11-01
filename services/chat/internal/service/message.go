@@ -37,6 +37,11 @@ func (s *ChatService) ProcessMessage(ctx context.Context, senderID, chatID, clie
 		return nil, fmt.Errorf("failed to save message: %w", err)
 	}
 
+	err = s.chatRepository.UpdateReadStatus(ctx, chatID, senderID, msg.Sequence)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update last_read_sequence in chat_members: %w", err)
+	}
+
 	payloadBytes, _ := json.Marshal(msg)
 	s.wsManager.BroadcastEvent(websocket.Event{
 		Type:          websocket.EventTypeMessageCreated,

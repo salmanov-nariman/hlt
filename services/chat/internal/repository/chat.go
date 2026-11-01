@@ -54,3 +54,22 @@ func (r *ChatRepository) CreateChat(ctx context.Context, membersIDs []string) (s
 
 	return chatID, nil
 }
+
+func (r *ChatRepository) updateLastReadSequence(ctx context.Context, db DBEngine, chatID, userID string, sequence int64) error {
+	query := `
+		UPDATE chat_members
+		SET last_read_sequence = GREATEST(last_read_sequence, $1)
+		WHERE chat_id = $2 AND user_id = $3
+	`
+
+	_, err := db.Exec(ctx, query, sequence, chatID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to update last_read_sequence: %w", err)
+	}
+
+	return nil
+}
+
+func (r *ChatRepository) UpdateReadStatus(ctx context.Context, chatID, userID string, sequence int64) error {
+	return r.updateLastReadSequence(ctx, r.db, chatID, userID, sequence)
+}
