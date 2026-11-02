@@ -1,0 +1,94 @@
+name: Auth CI/CD
+
+on:
+  pull_request:
+    branches:
+      - main
+
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and test Auth
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: services/auth
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: auth_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d auth_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DB_URL: r2dbc:postgresql://localhost:5432/auth_test
+      DB_URL_JDBC: jdbc:postgresql://localhost:5432/auth_test
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      JWT_SECRET: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      ACCESS_EXPIRATION: '900000'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: services/auth/pom.xml
+
+      - name: Build and test
+        run: bash ./mvnw --batch-mode --no-transfer-progress verify
+
+      - name: Build Docker image
+        run: docker build --tag hlt-auth:ci .
+
+  publish-image:
+    name: Publish Auth image
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      IMAGE: ghcr.io/salmanov-nariman/hlt-auth:sha-${{ github.sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io \
+            --username "$GITHUB_ACTOR" \
+            --password-stdin
+
+      - name: Build Docker image
+        run: docker build --tag "$IMAGE" ./services/auth
+
+      - name: Push Docker image
+        run: docker push "$IMAGE"
