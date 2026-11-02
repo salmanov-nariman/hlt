@@ -8,7 +8,7 @@ import (
 )
 
 
-func (r *ChatRepository) SaveMessage(ctx context.Context, msg *domain.Message) error {
+func (r *ChatRepository) SaveMessageWithReadUpdate(ctx context.Context, msg *domain.Message) error {
 	var existingID, existingContent string
 	var existingCreatedAt time.Time
 	var existingSequence int64
@@ -59,6 +59,9 @@ func (r *ChatRepository) SaveMessage(ctx context.Context, msg *domain.Message) e
 	}
 
 	err = r.updateLastReadSequence(ctx, tx, msg.ChatID, msg.SenderID, msg.Sequence)
+	if err != nil {
+		return fmt.Errorf("failed to update last_read_sequence in chat_members: %w", err)
+	}
 
 	return tx.Commit(ctx)
 }
