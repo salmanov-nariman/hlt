@@ -1,0 +1,136 @@
+name: Chat CI/CD
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'services/chat/**'
+      - '.github/workflows/chat.yml'
+
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/chat/**'
+      - '.github/workflows/chat.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and test Chat
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: services/chat
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: chat_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d chat_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://test:test@localhost:5432/chat_test?sslmode=disable
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: services/chat/go.mod
+          cache-dependency-path: services/chat/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -v -count=1 ./...
+
+      - name: Build application
+        run: go build ./...
+
+      - name: Build Docker image
+        run: docker build --tag hlt-chat:ci .
+
+      - name: Start Chat container
+        run: |
+          docker run --detach \
+            --name chat-ci \
+            --network host \
+            --env DATABASE_URL \
+            hlt-chat:ci
+
+      - name: Check application startup
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error \
+              --max-time 2 \
+              http://localhost:8080/metrics > /dev/null; then
+              echo "Chat started successfully"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Chat did not start within the expected time"
+          exit 1
+
+      - name: Show container logs
+        if: always()
+        run: |
+          if docker container inspect chat-ci > /dev/null 2>&1; then
+            docker logs chat-ci
+          fi
+
+      - name: Stop Chat container
+        if: always()
+        run: |
+          if docker container inspect chat-ci > /dev/null 2>&1; then
+            docker rm --force chat-ci
+          fi
+
+  publish-image:
+    name: Publish Chat image
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      IMAGE: ghcr.io/salmanov-nariman/hlt-chat:sha-${{ github.sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io \
+            --username "$GITHUB_ACTOR" \
+            --password-stdin
+
+      - name: Build Docker image
+        run: docker build --tag "$IMAGE" ./services/chat
+
+      - name: Push Docker image
+        run: docker push "$IMAGE"
