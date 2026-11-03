@@ -61,6 +61,7 @@ func main() {
 		r.Post("/chat/read", chatHandler.MarkAsRead)
 
 		r.Get("/chat/messages",  middleware.REDMetricsMiddleware("/api/chat/messages", chatHandler.SyncMessages))
+		r.Get("/chats", middleware.REDMetricsMiddleware("/api/chats", chatHandler.GetUserChats))
 
 		r.Get("/chat/ws", wsManager.ServeWS)
 	})
