@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"chat/internal/dto"
 	"chat/internal/repository"
 	"chat/internal/service"
 	"chat/middleware"
@@ -195,4 +196,48 @@ func (h *ChatHandler) MarkAsRead(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+
+func (h *ChatHandler) GetUserChats(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	} 
+
+	chats, err := h.chatService.GetUserChats(r.Context(), userID)
+	if err != nil {
+		log.Printf("chatService.GetUserChats error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	response := make([]dto.ChatSummaryResponse, 0, len(chats))
+
+	for _, c := range chats {
+		summaryDTO := dto.ChatSummaryResponse{
+			ID: c.ID,
+			UnreadCount: c.UnreadCount,
+			UpdatedAt: c.UpdatedAt,
+		}
+		if c.LastMessage != nil {
+			summaryDTO.LastMessage = &dto.MessageResponse{
+				ID:        c.LastMessage.ID,
+				ChatID:    c.LastMessage.ChatID,
+				SenderID:  c.LastMessage.SenderID,
+				Content:   c.LastMessage.Content,
+				CreatedAT: c.LastMessage.CreatedAT,
+				ClientMessageID: c.LastMessage.ClientMessageID,
+				Sequence: c.LastMessage.Sequence,
+			}
+		}
+
+		response = append(response, summaryDTO)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("failed to encode GetUserChats response: %v", err)
+	}
 }

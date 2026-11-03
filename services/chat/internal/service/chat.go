@@ -1,6 +1,7 @@
 package service
 
 import (
+	"chat/internal/domain"
 	"chat/internal/websocket"
 	"context"
 	"encoding/json"
@@ -63,4 +64,13 @@ func (s *ChatService) UpdateReadStatus(ctx context.Context, chatID, userID strin
 	})
 
 	return nil
+}
+
+
+func (s *ChatService) GetUserChats(ctx context.Context, userID string) ([]domain.ChatSummary, error) {
+	chats, err := s.chatRepository.GetUserChats(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("chat service - failed to get user chats: %w", err)
+	}
+	return chats, nil
 }
