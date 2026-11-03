@@ -3,6 +3,7 @@ package handler
 import (
 	"chat/internal/repository"
 	"chat/internal/service"
+	"chat/middleware"
 	"encoding/json"
 	"errors"
 	"log"
@@ -26,9 +27,9 @@ func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	senderID := r.Header.Get("X-User-Id")
-	if senderID == "" {
-		http.Error(w, "X-User-Id header is missing", http.StatusBadRequest)
+	senderID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
@@ -73,9 +74,9 @@ func (h *ChatHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	senderID := r.Header.Get("X-User-Id")
-	if senderID == "" {
-		http.Error(w, "X-User-Id header is missing", http.StatusBadRequest)
+	senderID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
@@ -110,9 +111,9 @@ func (h *ChatHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
 
 
 func (h *ChatHandler) SyncMessages(w http.ResponseWriter, r *http.Request) {
-	senderID := r.Header.Get("X-User-Id")
-	if senderID == "" {
-		http.Error(w, "X-User-Id header is missing", http.StatusBadRequest)
+	senderID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
@@ -166,9 +167,9 @@ type MarkReadRequest struct {
 }
 
 func (h *ChatHandler) MarkAsRead(w http.ResponseWriter, r *http.Request) {
-	userID := r.Header.Get("X-User-Id")
-	if userID == "" {
-		http.Error(w, "X-User-Id header is missing", http.StatusBadRequest)
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 

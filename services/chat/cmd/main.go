@@ -54,6 +54,8 @@ func main() {
 	r.Use(chiMiddleware.Recoverer)
 
 	r.Route("/api", func(r chi.Router) {
+		r.Use(middleware.AuthMiddleware)
+
 		r.Post("/chats", middleware.REDMetricsMiddleware("/api/chats", chatHandler.CreateChat))
 		r.Post("/messages", middleware.REDMetricsMiddleware("/api/messages", chatHandler.PostMessage))
 		r.Post("/chat/read", chatHandler.MarkAsRead)
