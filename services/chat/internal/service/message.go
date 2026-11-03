@@ -29,24 +29,36 @@ func (s *ChatService) ProcessMessage(ctx context.Context, senderID, chatID, clie
 		Content: content,
 	}
 
-	err = s.chatRepository.SaveMessage(ctx, msg)
+	err = s.chatRepository.SaveMessageWithReadUpdate(ctx, msg)
 	if err != nil {
 		if errors.Is(err, repository.ErrMessageAlreadyExists) || errors.Is(err, repository.ErrMessageConflict) {
 			return msg, err
 		}
 		return nil, fmt.Errorf("failed to save message: %w", err)
-	}
-
-	err = s.chatRepository.UpdateReadStatus(ctx, chatID, senderID, msg.Sequence)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update last_read_sequence in chat_members: %w", err)
-	}
+	}	
 
 	payloadBytes, _ := json.Marshal(msg)
 	s.wsManager.BroadcastEvent(websocket.Event{
 		Type:          websocket.EventTypeMessageCreated,
 		ChatID:        chatID,
 		Payload:       payloadBytes,
+		TargetUserIDs: memberIDs,
+	})
+
+	// обновляем статус события, чтобы можно было обновить список чатов
+	chatUpdatedPayload := struct {
+		ChatID string
+		LastMessage *domain.Message
+	}{
+		ChatID: chatID,
+		LastMessage: msg,
+	}
+
+	updatedPayloadBytes, _ := json.Marshal(chatUpdatedPayload)
+	s.wsManager.BroadcastEvent(websocket.Event{
+		Type: websocket.EventTypeChatUpdated,
+		ChatID: chatID,
+		Payload: updatedPayloadBytes,
 		TargetUserIDs: memberIDs,
 	})
 

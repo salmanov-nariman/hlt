@@ -78,33 +78,12 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 	}
 
 	wsCalled := false
+	var capturedEvents []websocket.Event
+
 	mockWS := &mockWSBroadcaster{
 		broadcastEventFunc: func(event websocket.Event) {
 			wsCalled = true
-			if event.Type != websocket.EventTypeMessageCreated || event.ChatID != chatID {
-				t.Errorf("неверный тип сообщения или chatID: %+v", event)
-			}
-
-			if len(event.TargetUserIDs) == 0 {
-				t.Errorf("ошибка: пустой TargetUserIDs")
-			}
-			
-			expectedUsers := []string{"good_user_1", "good_user_2"}
-			if !slices.Equal(event.TargetUserIDs, expectedUsers) {
-				t.Errorf("ожидались получатели %v, получено %v", expectedUsers, event.TargetUserIDs)
-			}
-
-			var chatMsg domain.Message
-			if err := json.Unmarshal(event.Payload, &chatMsg); err != nil {
-            	t.Errorf("ошибка распаковки Payload: %v", err)
-        	}
-
-			if chatMsg.Content != content {
-				t.Errorf("ожидался текст '%s', получено: '%s'", content, chatMsg.Content)
-			}
-			if chatMsg.ClientMessageID != clientMsgID {
-				t.Errorf("ожидался ClientMessageID '%s', получено: '%s'", clientMsgID, chatMsg.ClientMessageID)
-			}
+			capturedEvents = append(capturedEvents, event)	
 		},
 	}
 
@@ -125,6 +104,41 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 	if !wsCalled {
 		t.Error("ожидалось, что сообщение будет отправлено в вебсокет, но BroadcastEvent не был вызван")
 	}
+
+	if len(capturedEvents) != 2 {
+        t.Fatalf("ожидалось 2 события, получено: %d", len(capturedEvents))
+    }
+
+	expectedUsers := []string{"good_user_1", "good_user_2"}
+
+	event1 := capturedEvents[0] // message.created
+    if event1.Type != websocket.EventTypeMessageCreated || event1.ChatID != chatID {
+        t.Errorf("ошибка в первом событии (message.created): %+v", event1)
+    }
+    if !slices.Equal(event1.TargetUserIDs, expectedUsers) {
+        t.Errorf("ожидались получатели %v для event1, получено %v", expectedUsers, event1.TargetUserIDs)
+    }
+
+	var chatMsg domain.Message
+	if err := json.Unmarshal(event1.Payload, &chatMsg); err != nil {
+        t.Errorf("ошибка распаковки Payload: %v", err)
+    }
+
+	if chatMsg.Content != content {
+		t.Errorf("ожидался текст '%s', получено: '%s'", content, chatMsg.Content)
+	}
+
+	if chatMsg.ClientMessageID != clientMsgID {
+		t.Errorf("ожидался ClientMessageID '%s', получено: '%s'", clientMsgID, chatMsg.ClientMessageID)
+	}
+
+	event2 := capturedEvents[1] // chat.updated
+    if event2.Type != websocket.EventTypeChatUpdated || event2.ChatID != chatID {
+        t.Errorf("ошибка во втором событии (chat.updated): %+v", event2)
+    }
+    if !slices.Equal(event2.TargetUserIDs, expectedUsers) {
+        t.Errorf("ожидались получатели %v для event2, получено %v", expectedUsers, event2.TargetUserIDs)
+    }
 }
 
 

@@ -30,7 +30,7 @@ func (m *mockChatRepository) GetUsersInChat(ctx context.Context, chatID string) 
 	return m.getUsersInChatFunc(ctx, chatID)
 }
 
-func (m *mockChatRepository) SaveMessage(ctx context.Context, msg *domain.Message) error {
+func (m *mockChatRepository) SaveMessageWithReadUpdate(ctx context.Context, msg *domain.Message) error {
 	return m.saveMessageFunc(ctx, msg)
 }
 
