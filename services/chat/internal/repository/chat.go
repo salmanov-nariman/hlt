@@ -1,8 +1,10 @@
 package repository
 
 import (
+	"chat/internal/domain"
 	"context"
 	"fmt"
+	"time"
 )
 
 func (r *ChatRepository) GetUsersInChat(ctx context.Context, chatID string) ([]string, error) {
@@ -25,7 +27,6 @@ func (r *ChatRepository) GetUsersInChat(ctx context.Context, chatID string) ([]s
 
 	return userIDs, nil
 }
-
 
 func (r *ChatRepository) CreateChat(ctx context.Context, membersIDs []string) (string, error) {
 	tx, err := r.db.Begin(ctx)
@@ -72,4 +73,92 @@ func (r *ChatRepository) updateLastReadSequence(ctx context.Context, db DBEngine
 
 func (r *ChatRepository) UpdateReadStatus(ctx context.Context, chatID, userID string, sequence int64) error {
 	return r.updateLastReadSequence(ctx, r.db, chatID, userID, sequence)
+}
+
+func (r *ChatRepository) GetUserChats(ctx context.Context, userID string) ([]domain.ChatSummary, error) {
+	query := `
+		SELECT 
+			c.id AS chat_id,
+			c.updated_at AS chat_updated_at,
+			m.id AS msg_id,
+			m.sender_id AS msg_sender_id,
+			m.content AS msg_content,
+			m.created_at AS msg_created_at,
+			m.client_message_id AS msg_client_message_id,
+			m.sequence AS msg_sequence,
+			cm.last_read_sequence AS user_last_read_sequence
+		FROM chats c
+		JOIN chat_members cm ON c.id = cm.chat_id
+		LEFT JOIN LATERAL (
+			SELECT id, sender_id, content, created_at, client_message_id, sequence
+			FROM messages
+			WHERE chat_id = c.id
+			ORDER BY created_at DESC
+			LIMIT 1
+		) m ON true
+		WHERE cm.user_id = $1
+		ORDER BY COALESCE(m.created_at, c.updated_at) DESC;
+	`
+
+	rows, err := r.db.Query(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query user chats: %w", err)
+	}
+	defer rows.Close()
+
+	var summaries []domain.ChatSummary
+	for rows.Next() {
+		var s domain.ChatSummary
+		var chatUpdatedAt time.Time
+		var msgID, msgSenderID, msgContent, msgClientMessageID *string
+		var msgSequence *int64
+		var msgCreatedAt *time.Time
+
+		var userLastSequence int64
+
+		err = rows.Scan(
+			&s.ID,
+			&chatUpdatedAt,
+			&msgID, // Если в БД NULL, сюда запишется nil
+			&msgSenderID,
+			&msgContent,
+			&msgCreatedAt,
+			&msgClientMessageID,
+			&msgSequence,
+			&userLastSequence,
+		)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan chat summary: %w", err)
+		}
+
+		if msgID != nil {
+			s.LastMessage = &domain.Message{
+				ID:        *msgID,
+				ChatID:    s.ID,
+				SenderID:  *msgSenderID,
+				Content:   *msgContent,
+				CreatedAT: *msgCreatedAt,
+				Sequence:  *msgSequence,
+				ClientMessageID: *msgClientMessageID,
+			}
+			s.UpdatedAt = *msgCreatedAt
+
+			if *msgSequence > userLastSequence {
+				s.UnreadCount = int(*msgSequence - userLastSequence)
+			} else {
+				s.UnreadCount = 0
+			}
+		} else {
+			s.UpdatedAt = chatUpdatedAt
+		}
+
+		summaries = append(summaries, s)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return summaries, nil
 }
