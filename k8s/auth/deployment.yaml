@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: auth-container
-          image: ghcr.io/salmanov-nariman/hlt-auth:sha-37920fa2376d5e1c101cfc1ec1e431e7e886b593
+          image: ghcr.io/salmanov-nariman/hlt-auth:sha-5e8b0a628af08b6651ea89d4b6f1a430babc0588
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
