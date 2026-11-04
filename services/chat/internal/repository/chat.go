@@ -138,7 +138,7 @@ func (r *ChatRepository) GetUserChats(ctx context.Context, userID string) ([]dom
 				ChatID:    s.ID,
 				SenderID:  *msgSenderID,
 				Content:   *msgContent,
-				CreatedAT: *msgCreatedAt,
+				CreatedAt: *msgCreatedAt,
 				Sequence:  *msgSequence,
 				ClientMessageID: *msgClientMessageID,
 			}

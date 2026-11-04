@@ -9,5 +9,5 @@ type Message struct {
 	ClientMessageID string
 	Content         string
 	Sequence        int64
-	CreatedAT       time.Time
+	CreatedAt       time.Time
 }
