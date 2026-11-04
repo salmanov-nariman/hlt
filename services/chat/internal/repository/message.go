@@ -33,7 +33,7 @@ func (r *ChatRepository) SaveMessageWithReadUpdate(ctx context.Context, msg *dom
 		}
 
 		msg.ID = existingID
-		msg.CreatedAT = existingCreatedAt
+		msg.CreatedAt = existingCreatedAt
 		msg.Sequence = existingSequence
 		return ErrMessageAlreadyExists // 200 OK
 	}
@@ -53,7 +53,7 @@ func (r *ChatRepository) SaveMessageWithReadUpdate(ctx context.Context, msg *dom
 		RETURNING id, created_at, sequence
 	`
 	
-	err = tx.QueryRow(ctx, query, msg.ChatID, msg.SenderID, msg.ClientMessageID, msg.Content).Scan(&msg.ID, &msg.CreatedAT, &msg.Sequence)
+	err = tx.QueryRow(ctx, query, msg.ChatID, msg.SenderID, msg.ClientMessageID, msg.Content).Scan(&msg.ID, &msg.CreatedAt, &msg.Sequence)
 	if err != nil {
 		return fmt.Errorf("failed to insert message and update chat: %w", err)
 	}
@@ -92,7 +92,7 @@ func (r *ChatRepository) GetMessagesAfter(ctx context.Context, chatID string, af
 			&msg.ClientMessageID,
 			&msg.Content,
 			&msg.Sequence,
-			&msg.CreatedAT,
+			&msg.CreatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan message row: %w", err)

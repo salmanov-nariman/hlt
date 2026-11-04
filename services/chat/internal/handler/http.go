@@ -21,7 +21,6 @@ func NewChatHandler(chatService *service.ChatService) *ChatHandler {
 	return &ChatHandler{chatService: chatService}
 }
 
-
 func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -35,9 +34,9 @@ func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		ChatID string `json:"chat_id"`
+		ChatID          string `json:"chat_id"`
 		ClientMessageID string `json:"client_message_id"`
-		Text   string `json:"text"`
+		Text            string `json:"text"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -45,8 +44,21 @@ func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	msg, err := h.chatService.ProcessMessage(r.Context(), senderID, req.ChatID, req.ClientMessageID, req.Text)
-	
+
 	w.Header().Set("Content-Type", "application/json")
+
+	var messageDTO *dto.MessageResponse
+	if msg != nil {
+		messageDTO = &dto.MessageResponse{
+			ID:              msg.ID,
+			ChatID:          msg.ChatID,
+			SenderID:        msg.SenderID,
+			Content:         msg.Content,
+			CreatedAt:       msg.CreatedAt,
+			ClientMessageID: msg.ClientMessageID,
+			Sequence:        msg.Sequence,
+		}
+	}
 
 	if err != nil {
 		if errors.Is(err, repository.ErrMessageConflict) {
@@ -65,9 +77,8 @@ func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(msg)
+	json.NewEncoder(w).Encode(messageDTO)
 }
-
 
 func (h *ChatHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -110,7 +121,6 @@ func (h *ChatHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-
 func (h *ChatHandler) SyncMessages(w http.ResponseWriter, r *http.Request) {
 	senderID, ok := middleware.GetUserID(r.Context())
 	if !ok {
@@ -150,21 +160,33 @@ func (h *ChatHandler) SyncMessages(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
-		
+
 		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return 
+		return
+	}
+
+	response := make([]dto.MessageResponse, 0, len(messages))
+	for _, m := range messages {
+		response = append(response, dto.MessageResponse{
+			ID:              m.ID,
+			ChatID:          m.ChatID,
+			SenderID:        m.SenderID,
+			Content:         m.Content,
+			CreatedAt:       m.CreatedAt,
+			ClientMessageID: m.ClientMessageID,
+			Sequence:        m.Sequence,
+		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(messages); err != nil {
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, "failed to encode response", http.StatusInternalServerError)
 	}
 }
 
-
 type MarkReadRequest struct {
-	ChatID string `json:"chat_id"`
-	LastReadSequence int64 `json:"last_read_sequence"`
+	ChatID           string `json:"chat_id"`
+	LastReadSequence int64  `json:"last_read_sequence"`
 }
 
 func (h *ChatHandler) MarkAsRead(w http.ResponseWriter, r *http.Request) {
@@ -198,12 +220,11 @@ func (h *ChatHandler) MarkAsRead(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-
 func (h *ChatHandler) GetUserChats(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	} 
+	}
 
 	chats, err := h.chatService.GetUserChats(r.Context(), userID)
 	if err != nil {
@@ -216,19 +237,19 @@ func (h *ChatHandler) GetUserChats(w http.ResponseWriter, r *http.Request) {
 
 	for _, c := range chats {
 		summaryDTO := dto.ChatSummaryResponse{
-			ID: c.ID,
+			ID:          c.ID,
 			UnreadCount: c.UnreadCount,
-			UpdatedAt: c.UpdatedAt,
+			UpdatedAt:   c.UpdatedAt,
 		}
 		if c.LastMessage != nil {
 			summaryDTO.LastMessage = &dto.MessageResponse{
-				ID:        c.LastMessage.ID,
-				ChatID:    c.LastMessage.ChatID,
-				SenderID:  c.LastMessage.SenderID,
-				Content:   c.LastMessage.Content,
-				CreatedAT: c.LastMessage.CreatedAT,
+				ID:              c.LastMessage.ID,
+				ChatID:          c.LastMessage.ChatID,
+				SenderID:        c.LastMessage.SenderID,
+				Content:         c.LastMessage.Content,
+				CreatedAt:       c.LastMessage.CreatedAt,
 				ClientMessageID: c.LastMessage.ClientMessageID,
-				Sequence: c.LastMessage.Sequence,
+				Sequence:        c.LastMessage.Sequence,
 			}
 		}
 
