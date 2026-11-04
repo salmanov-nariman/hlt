@@ -8,7 +8,7 @@ spring:
     password: ${POSTGRES_PASSWORD}
 
   flyway:
-    enable: true
+    enabled: true
     url: ${DB_URL_JDBC}
     user: ${POSTGRES_USER}
     password: ${POSTGRES_PASSWORD}
