@@ -1,46 +1,88 @@
 package service_test
 
 import (
+	"chat/internal/domain"
 	"chat/internal/service"
 	"context"
-	"slices"
+	"errors"
 	"testing"
 )
 
 
-func TestChatService_CreateChat_Success(t *testing.T) {
+func TestChatService_CreateOrGetDirectChat(t *testing.T) {
 	ctx := context.Background()
-	expectedRoomID := "new_chat_2"
-	
 	senderID := "user_1"
-	invitedIDs := []string{"user_2", "user_2", "user_3"} 
 
-	mockRepo := &mockChatRepository{
-		createChatFunc: func(ctx context.Context, membersIDs []string) (string, error) {
-			if len(membersIDs) != 3 {
-				t.Errorf("ожидалось 3 уникальных участника, получено: %d", len(membersIDs))
-			}
-			
-			expectedUsers := []string{"user_1", "user_2", "user_3"}
-			for _, expectedUser := range expectedUsers {
-				if !slices.Contains(membersIDs, expectedUser) {
-					t.Errorf("участник %s потерян при сборке списка", expectedUser)
+	t.Run("ошибка при попытке создать чат с самим собой", func(t *testing.T) {
+		svc := service.NewChatService(nil, nil)
+
+		_, _, err := svc.CreateOrGetDirectChat(ctx, senderID, senderID)
+
+		if !errors.Is(err, service.ErrInvalidPartner) {
+			t.Errorf("ожидалась ошибка %v, получена: %v", service.ErrInvalidPartner, err)
+		}
+	})
+
+	t.Run("успешный возврат существующего чата", func(t *testing.T) {
+		partnerID := "user_2"
+		expectedRoomID := "existing_chat_1"
+
+		mockRepo := &mockChatRepository{
+			getDirectChatFunc: func(ctx context.Context, u1, u2 string) (*string, error) {
+				return &expectedRoomID, nil // Имитируем, что чат уже найден
+			},
+			getChatByIDFunc: func(ctx context.Context, chatID, userID string) (domain.ChatSummary, error) {
+				return domain.ChatSummary{ID: chatID}, nil
+			},
+		}
+
+		svc := service.NewChatService(nil, mockRepo)
+
+		chat, isNew, err := svc.CreateOrGetDirectChat(ctx, senderID, partnerID)
+
+		if err != nil {
+			t.Fatalf("ожидался успех, но получена ошибка: %v", err)
+		}
+		if isNew {
+			t.Errorf("ожидалось isNew = false, получено true")
+		}
+		if chat.ID != expectedRoomID {
+			t.Errorf("ожидался ID чата %s, получено: %s", expectedRoomID, chat.ID)
+		}
+	})
+
+	t.Run("успешное создание нового чата", func(t *testing.T) {
+		partnerID := "user_3"
+		expectedRoomID := "new_chat_2"
+
+		mockRepo := &mockChatRepository{
+			getDirectChatFunc: func(ctx context.Context, u1, u2 string) (*string, error) {
+				return nil, nil 
+			},
+			createDirectChatFunc: func(ctx context.Context, u1, u2 string) (string, error) {
+				if u1 != senderID || u2 != partnerID {
+					t.Errorf("ожидались участники %s и %s, получено: %s, %s", senderID, partnerID, u1, u2)
 				}
-			}
+				return expectedRoomID, nil
+			},
+			getChatByIDFunc: func(ctx context.Context, chatID, userID string) (domain.ChatSummary, error) {
+				return domain.ChatSummary{ID: chatID}, nil
+			},
+		}
 
-			return expectedRoomID, nil
-		},
-	}
+		svc := service.NewChatService(nil, mockRepo)
 
-	svc := service.NewChatService(nil, mockRepo)
+		chat, isNew, err := svc.CreateOrGetDirectChat(ctx, senderID, partnerID)
 
-	chatID, err := svc.CreateChat(ctx, senderID, invitedIDs)
-
-	if err != nil {
-		t.Fatalf("ожидался успех, но получена ошибка: %v", err)
-	}
-	if chatID != expectedRoomID {
-		t.Errorf("ожидался ID комнаты %s, получено: %s", expectedRoomID, chatID)
-	}
+		if err != nil {
+			t.Fatalf("ожидался успех, но получена ошибка: %v", err)
+		}
+		if !isNew {
+			t.Errorf("ожидалось isNew = true, получено false")
+		}
+		if chat.ID != expectedRoomID {
+			t.Errorf("ожидался ID чата %s, получено: %s", expectedRoomID, chat.ID)
+		}
+	})
 }
 

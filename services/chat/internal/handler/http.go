@@ -93,32 +93,65 @@ func (h *ChatHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		MemberIDs []string `json:"member_ids"`
+		PartnerID string `json:"partner_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte(`{"code": "VALIDATION_ERROR", "message": "partner_id is required"}`))
 		return
 	}
 
-	if len(req.MemberIDs) == 0 {
-		http.Error(w, "At least one chat member is required", http.StatusBadRequest)
-		return
-	}
-
-	chatID, err := h.chatService.CreateChat(r.Context(), senderID, req.MemberIDs)
+	chat, isNew, err := h.chatService.CreateOrGetDirectChat(r.Context(), senderID, req.PartnerID)
 	if err != nil {
-		log.Printf("[ERROR] Не удалось создать чат: %v", err)
+		w.Header().Set("Content-Type", "application/json")
 
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		if errors.Is(err, service.ErrInvalidPartner) {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"code": "INVALID_PARTNER", "message": "Cannot create chat with yourself"}`))
+			return
+		}
+
+		if errors.Is(err, service.ErrUserNotFound) {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"code": "USER_NOT_FOUND", "message": "Partner user does not exist"}`))
+			return
+		}
+
+		log.Printf("[ERROR] CreateOrGetDirectChat failed: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"code": "INTERNAL_ERROR", "message": "Internal server error"}`))
 		return
+	}
+
+	response := dto.ChatSummaryResponse{
+		ID:          chat.ID,
+		UnreadCount: chat.UnreadCount,
+		UpdatedAt:   chat.UpdatedAt,
+		Revision:    chat.Revision,
+	}
+	if chat.LastMessage != nil {
+		response.LastMessage = &dto.MessageResponse{
+			ID:              chat.LastMessage.ID,
+			ChatID:          chat.LastMessage.ChatID,
+			SenderID:        chat.LastMessage.SenderID,
+			Content:         chat.LastMessage.Content,
+			CreatedAt:       chat.LastMessage.CreatedAt,
+			ClientMessageID: chat.LastMessage.ClientMessageID,
+			Sequence:        chat.LastMessage.Sequence,
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
+	if isNew {
+		w.WriteHeader(http.StatusCreated)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+	
 
-	json.NewEncoder(w).Encode(map[string]string{
-		"chat_id": chatID,
-	})
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("[ERROR] Failed to write CreateChat response: %v", err)
+	}
 }
 
 func (h *ChatHandler) SyncMessages(w http.ResponseWriter, r *http.Request) {
@@ -231,13 +264,13 @@ func (h *ChatHandler) GetUserChats(w http.ResponseWriter, r *http.Request) {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 			if l > 50 {
 				l = 50
-			} 
+			}
 			limit = l
 		} else {
 			http.Error(w, `{"code": "INVALID_PAGINATION"}`, http.StatusBadRequest)
 			return
 		}
-		
+
 	}
 
 	cursor := r.URL.Query().Get("cursor")
@@ -256,7 +289,7 @@ func (h *ChatHandler) GetUserChats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := dto.PaginatedChatsResponse{
-		Items: make([]dto.ChatSummaryResponse, 0, len(chats)),
+		Items:      make([]dto.ChatSummaryResponse, 0, len(chats)),
 		NextCursor: nextCursor,
 	}
 

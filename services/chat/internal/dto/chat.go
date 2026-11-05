@@ -7,6 +7,7 @@ type ChatSummaryResponse struct {
 	LastMessage *MessageResponse `json:"last_message"`
 	UnreadCount int              `json:"unread_count"`
 	UpdatedAt   time.Time        `json:"updated_at"`
+	Revision    int              `json:"revision"`
 }
 
 type PaginatedChatsResponse struct {
