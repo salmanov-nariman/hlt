@@ -13,29 +13,48 @@ import (
 	"time"
 )
 
+var (
+	ErrInvalidPartner = errors.New("invalid partner: cannot create chat with yourself")
+	ErrUserNotFound   = errors.New("user not found")
+)
 
-func (s *ChatService) CreateChat(ctx context.Context, senderID string, invitedIDs []string) (string, error) {
-	uniqueUsers := make(map[string]struct{})
-
-	uniqueUsers[senderID] = struct{}{}
-
-	for _, userID := range invitedIDs {
-		uniqueUsers[userID] = struct{}{}
+func (s* ChatService) CreateOrGetDirectChat(ctx context.Context, senderID, partnerID string) (domain.ChatSummary, bool, error) {
+	if senderID == partnerID {
+		return domain.ChatSummary{}, false, ErrInvalidPartner
 	}
 
-	finalMembersIDs := make([]string, 0, len(uniqueUsers))
-	for uid := range uniqueUsers {
-		finalMembersIDs = append(finalMembersIDs, uid)
-	}
-
-	chatID, err := s.chatRepository.CreateChat(ctx, finalMembersIDs)
+	existingChatID, err := s.chatRepository.GetDirectChat(ctx, senderID, partnerID)
 	if err != nil {
-		return "", fmt.Errorf("failed to create chat in db: %w", err)
+		return domain.ChatSummary{}, false, fmt.Errorf("failed to check existing chat: %w", err)
 	}
 
-	return chatID, nil
-}
+	var chatID string
+	var isNew bool
+	
+	if existingChatID != nil {
+		chatID = *existingChatID
+		isNew = false
+	} else {
+		chatID, err = s.chatRepository.CreateDirectChat(ctx, senderID, partnerID)
+		if err != nil {
+			//имитация ошибки отсутствия user, пока не прикрутил user service
+			if strings.Contains(err.Error(), "foreign key constraint") {
+				return domain.ChatSummary{}, false, ErrUserNotFound
+			}
+			return domain.ChatSummary{}, false, fmt.Errorf("failed to create direct chat: %w", err)
+		}
+		isNew = true
+	}
 
+	chat, err := s.chatRepository.GetChatByID(ctx, chatID, senderID)
+	if err != nil {
+		return domain.ChatSummary{}, false, fmt.Errorf("failed to get created chat: %w", err)
+	}
+
+	// TODO: Обогатить данные профилем партнера через UserProvider
+
+	return chat, isNew, nil
+}
 
 func (s *ChatService) UpdateReadStatus(ctx context.Context, chatID, userID string, sequence int64) error {
 	membersIDs, err := s.chatRepository.GetUsersInChat(ctx, chatID)

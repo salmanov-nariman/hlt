@@ -7,4 +7,5 @@ type ChatSummary struct {
 	LastMessage *Message
 	UnreadCount int
 	UpdatedAt   time.Time
+	Revision    int
 }
