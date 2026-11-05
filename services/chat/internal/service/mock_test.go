@@ -4,6 +4,7 @@ import (
 	"chat/internal/domain"
 	"chat/internal/websocket"
 	"context"
+	"time"
 )
 
 
@@ -23,7 +24,7 @@ type mockChatRepository struct {
 	createChatFunc func(ctx context.Context, invitedIDs []string) (string, error)
 	getMessagesAfterFunc func(ctx context.Context, chatID string, afterSequence int64, limit int) ([]domain.Message, error)
 	updateReadStatusFunc func(ctx context.Context, chatID, userID string, sequence int64) error
-	getUserChatsFunc func(ctx context.Context, userID string) ([]domain.ChatSummary, error)
+	getUserChatsFunc func(ctx context.Context, userID string, limit int, cursorUpdatedAt *time.Time, cursorID *string) ([]domain.ChatSummary, error)
 }
 
 func (m *mockChatRepository) GetUsersInChat(ctx context.Context, chatID string) ([]string, error) {
@@ -46,6 +47,6 @@ func (m *mockChatRepository) UpdateReadStatus(ctx context.Context, chatID, userI
     return m.updateReadStatusFunc(ctx, chatID, userID, sequence)
 }
 
-func (m *mockChatRepository) GetUserChats(ctx context.Context, userID string) ([]domain.ChatSummary, error) {
-	return m.getUserChatsFunc(ctx, userID)
+func (m *mockChatRepository) GetUserChats(ctx context.Context, userID string, limit int, cursorUpdatedAt *time.Time, cursorID *string) ([]domain.ChatSummary, error) {
+	return m.getUserChatsFunc(ctx, userID, limit, cursorUpdatedAt, cursorID)
 }

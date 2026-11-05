@@ -75,7 +75,7 @@ func (r *ChatRepository) UpdateReadStatus(ctx context.Context, chatID, userID st
 	return r.updateLastReadSequence(ctx, r.db, chatID, userID, sequence)
 }
 
-func (r *ChatRepository) GetUserChats(ctx context.Context, userID string) ([]domain.ChatSummary, error) {
+func (r *ChatRepository) GetUserChats(ctx context.Context, userID string, limit int, cursorUpdatedAt *time.Time, cursorID *string) ([]domain.ChatSummary, error) {
 	query := `
 		SELECT 
 			c.id AS chat_id,
@@ -97,10 +97,12 @@ func (r *ChatRepository) GetUserChats(ctx context.Context, userID string) ([]dom
 			LIMIT 1
 		) m ON true
 		WHERE cm.user_id = $1
-		ORDER BY COALESCE(m.created_at, c.updated_at) DESC;
+			AND ($2::timestamptz IS NULL OR (c.updated_at, c.id) < ($2::timestamptz, $3::uuid))
+		ORDER BY c.updated_at DESC, c.id DESC
+		LIMIT $4;
 	`
 
-	rows, err := r.db.Query(ctx, query, userID)
+	rows, err := r.db.Query(ctx, query, userID, cursorUpdatedAt, cursorID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query user chats: %w", err)
 	}
@@ -113,7 +115,6 @@ func (r *ChatRepository) GetUserChats(ctx context.Context, userID string) ([]dom
 		var msgID, msgSenderID, msgContent, msgClientMessageID *string
 		var msgSequence *int64
 		var msgCreatedAt *time.Time
-
 		var userLastSequence int64
 
 		err = rows.Scan(
@@ -134,15 +135,15 @@ func (r *ChatRepository) GetUserChats(ctx context.Context, userID string) ([]dom
 
 		if msgID != nil {
 			s.LastMessage = &domain.Message{
-				ID:        *msgID,
-				ChatID:    s.ID,
-				SenderID:  *msgSenderID,
-				Content:   *msgContent,
-				CreatedAt: *msgCreatedAt,
-				Sequence:  *msgSequence,
+				ID:              *msgID,
+				ChatID:          s.ID,
+				SenderID:        *msgSenderID,
+				Content:         *msgContent,
+				CreatedAt:       *msgCreatedAt,
+				Sequence:        *msgSequence,
 				ClientMessageID: *msgClientMessageID,
 			}
-			s.UpdatedAt = *msgCreatedAt
+			s.UpdatedAt = chatUpdatedAt
 
 			if *msgSequence > userLastSequence {
 				s.UnreadCount = int(*msgSequence - userLastSequence)
@@ -151,6 +152,7 @@ func (r *ChatRepository) GetUserChats(ctx context.Context, userID string) ([]dom
 			}
 		} else {
 			s.UpdatedAt = chatUpdatedAt
+			s.UnreadCount = 0
 		}
 
 		summaries = append(summaries, s)

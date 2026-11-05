@@ -226,14 +226,39 @@ func (h *ChatHandler) GetUserChats(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
 
-	chats, err := h.chatService.GetUserChats(r.Context(), userID)
+	limit := 20
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			if l > 50 {
+				l = 50
+			} 
+			limit = l
+		} else {
+			http.Error(w, `{"code": "INVALID_PAGINATION"}`, http.StatusBadRequest)
+			return
+		}
+		
+	}
+
+	cursor := r.URL.Query().Get("cursor")
+
+	chats, nextCursor, err := h.chatService.GetUserChats(r.Context(), userID, limit, cursor)
 	if err != nil {
+		if errors.Is(err, service.ErrInvalidCursor) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"code": "INVALID_CURSOR"}`))
+			return
+		}
 		log.Printf("chatService.GetUserChats error: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	response := make([]dto.ChatSummaryResponse, 0, len(chats))
+	response := dto.PaginatedChatsResponse{
+		Items: make([]dto.ChatSummaryResponse, 0, len(chats)),
+		NextCursor: nextCursor,
+	}
 
 	for _, c := range chats {
 		summaryDTO := dto.ChatSummaryResponse{
@@ -253,7 +278,7 @@ func (h *ChatHandler) GetUserChats(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		response = append(response, summaryDTO)
+		response.Items = append(response.Items, summaryDTO)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -8,3 +8,8 @@ type ChatSummaryResponse struct {
 	UnreadCount int              `json:"unread_count"`
 	UpdatedAt   time.Time        `json:"updated_at"`
 }
+
+type PaginatedChatsResponse struct {
+	Items      []ChatSummaryResponse `json:"items"`
+	NextCursor *string               `json:"next_cursor"`
+}
