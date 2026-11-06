@@ -14,3 +14,12 @@ type PaginatedChatsResponse struct {
 	Items      []ChatSummaryResponse `json:"items"`
 	NextCursor *string               `json:"next_cursor"`
 }
+
+type MarkReadRequest struct {
+	ChatID           string `json:"chat_id"`
+	LastReadSequence int64  `json:"last_read_sequence"`
+}
+
+type CreateChatRequest struct {
+	PartnerID string `json:"partner_id"`
+}

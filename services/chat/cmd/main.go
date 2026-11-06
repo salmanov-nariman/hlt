@@ -1,6 +1,8 @@
 package main
 
 import (
+	_ "chat/docs"
+	httpSwagger "github.com/swaggo/http-swagger"
 	"chat/config"
 	"chat/internal/handler"
 	"chat/internal/repository"
@@ -23,6 +25,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+// @title 		   				 HLT chat service API
+// @version 	  				 1.0
+// @description    				 API server for chat service
+// @host           				 localhost:8080
+// @BasePath       				 /api/v1
+// @securityDefinitions.apikey   UserIdAuth
+// @in 							 header
+// @name 						 X-User-Id
 func main() {
 	ctx := context.Background()
 
@@ -60,13 +70,15 @@ func main() {
 		r.Post("/messages", middleware.REDMetricsMiddleware("/api/messages", chatHandler.PostMessage))
 		r.Post("/chat/read", chatHandler.MarkAsRead)
 
-		r.Get("/chat/messages",  middleware.REDMetricsMiddleware("/api/chat/messages", chatHandler.SyncMessages))
+		r.Get("/chat/messages", middleware.REDMetricsMiddleware("/api/chat/messages", chatHandler.SyncMessages))
 		r.Get("/chats", middleware.REDMetricsMiddleware("/api/chats", chatHandler.GetUserChats))
 
 		r.Get("/chat/ws", wsManager.ServeWS)
 	})
 
 	r.Handle("/metrics", promhttp.Handler())
+
+	r.Get("/swagger/*", httpSwagger.WrapHandler)
 
 	r.Handle("/*", http.FileServer(http.Dir("./frontend")))
 
