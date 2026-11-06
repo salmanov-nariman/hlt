@@ -2,6 +2,7 @@ package service
 
 import (
 	"chat/internal/domain"
+	"chat/internal/repository"
 	"chat/internal/websocket"
 	"context"
 	"encoding/base64"
@@ -142,4 +143,28 @@ func decodeCursor(cursor string) (*time.Time, *string, error) {
 	}
 
 	return &t, &parts[1], nil 
+}
+
+var ErrUserNotInChat = errors.New("user not in chat")
+
+func (s *ChatService) GetChat(ctx context.Context, chatID, userID string) (domain.ChatSummary, error) {
+	//сначала проверяем состоит ли юзер в чате
+	userIDs, err := s.chatRepository.GetUsersInChat(ctx, chatID)
+	if err != nil {
+		return domain.ChatSummary{}, fmt.Errorf("failed to get users in chat: %w", err)
+	}
+	if !slices.Contains(userIDs, userID) {
+		return domain.ChatSummary{}, ErrUserNotInChat
+	}
+
+	//достаем объект чата
+	chat, err := s.chatRepository.GetChatByID(ctx, chatID, userID)
+	if err != nil {
+		if errors.Is(err, repository.ErrChatNotFound) {
+			return domain.ChatSummary{}, repository.ErrChatNotFound
+		}
+		return domain.ChatSummary{}, fmt.Errorf("failed to get chat from repo: %w", err)
+	}
+
+	return chat, nil
 }
