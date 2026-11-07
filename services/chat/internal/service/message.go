@@ -82,3 +82,28 @@ func (s *ChatService) SyncMessages(ctx context.Context, senderID, chatID string,
 
 	return s.chatRepository.GetMessagesAfter(ctx, chatID, afterSequence, limit)
 }
+
+
+func(s *ChatService) GetChatMessages(ctx context.Context, chatID, userID string, cursor *int64, limit int) ([]domain.Message, *int64, error) {
+	_, err := s.chatRepository.GetUsersInChat(ctx, chatID)
+	if err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			return nil, nil, ErrUserNotFound
+		}
+
+		return nil, nil, fmt.Errorf("access check failed: %w", err)
+	}
+
+	messages, err := s.chatRepository.GetChatMessages(ctx, chatID, cursor, limit)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get messages from repo: %w", err)
+	}
+
+	var nextCursor *int64
+	if len(messages) == limit && len(messages) > 0 {
+		lastMsgSequence := messages[len(messages) - 1].Sequence
+		nextCursor = &lastMsgSequence
+	}
+
+	return messages, nextCursor, nil
+}

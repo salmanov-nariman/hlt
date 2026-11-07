@@ -27,6 +27,7 @@ type mockChatRepository struct {
 	getUserChatsFunc func(ctx context.Context, userID string, limit int, cursorUpdatedAt *time.Time, cursorID *string) ([]domain.ChatSummary, error)
 	getDirectChatFunc func(ctx context.Context, uid1, uid2 string) (*string, error)
 	getChatByIDFunc func(ctx context.Context, chatID, userID string) (domain.ChatSummary, error)
+	getChatMessagesFunc func(ctx context.Context, chatID string, cursor *int64, limit int) ([]domain.Message, error)
 }
 
 func (m *mockChatRepository) GetUsersInChat(ctx context.Context, chatID string) ([]string, error) {
@@ -59,4 +60,8 @@ func (m *mockChatRepository) GetDirectChat(ctx context.Context, uid1, uid2 strin
 
 func (m *mockChatRepository) GetChatByID(ctx context.Context, chatID, userID string) (domain.ChatSummary, error) {
 	return m.getChatByIDFunc(ctx, chatID, userID)
+}
+
+func (m *mockChatRepository) GetChatMessages(ctx context.Context, chatID string, cursor *int64, limit int) ([]domain.Message, error) {
+	return m.getChatMessagesFunc(ctx, chatID, cursor, limit)
 }
