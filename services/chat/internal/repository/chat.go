@@ -81,6 +81,8 @@ func (r *ChatRepository) GetDirectChat(ctx context.Context, userID1, userID2 str
 	return &chatID, nil
 }
 
+var ErrChatNotFound = errors.New("chat not found")
+
 func (r *ChatRepository) GetChatByID(ctx context.Context, chatID, userID string) (domain.ChatSummary, error) {
 	query := `
 		SELECT 
@@ -128,6 +130,9 @@ func (r *ChatRepository) GetChatByID(ctx context.Context, chatID, userID string)
 	)
 
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ChatSummary{}, ErrChatNotFound
+		}
 		return domain.ChatSummary{}, fmt.Errorf("failed to get chat by id: %w", err)
 	}
 

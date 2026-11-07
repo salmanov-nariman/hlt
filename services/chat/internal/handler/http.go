@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/go-chi/chi"
 )
 
 type ChatHandler struct {
@@ -147,7 +149,6 @@ func (h *ChatHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.WriteHeader(http.StatusOK)
 	}
-	
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Printf("[ERROR] Failed to write CreateChat response: %v", err)
@@ -257,6 +258,7 @@ func (h *ChatHandler) GetUserChats(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 
 	limit := 20
@@ -318,5 +320,56 @@ func (h *ChatHandler) GetUserChats(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Printf("failed to encode GetUserChats response: %v", err)
+	}
+}
+
+func (h *ChatHandler) GetChat(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"code": "UNAUTHORIZED", "message": "Требуется авторизация"}`))
+		return
+	}
+
+	chatID := chi.URLParam(r, "chat_id")
+
+	chat, err := h.chatService.GetChat(r.Context(), chatID, userID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		
+		if errors.Is(err, repository.ErrChatNotFound) || errors.Is(err, service.ErrUserNotInChat) {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"code": "NOT_FOUND", "message": "Чат не найден"}`))
+			return
+		}
+
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"code": "INTERNAL_ERROR", "message": "Внутренняя ошибка сервера"}`))
+		return
+	}
+
+	resp := dto.ChatSummaryResponse{
+		ID:          chat.ID,
+		UnreadCount: chat.UnreadCount,
+		UpdatedAt:   chat.UpdatedAt,
+		Revision:    chat.Revision,
+	}
+	if chat.LastMessage != nil {
+		resp.LastMessage = &dto.MessageResponse{
+			ID:              chat.LastMessage.ID,
+			ChatID:          chat.LastMessage.ChatID,
+			SenderID:        chat.LastMessage.SenderID,
+			Content:         chat.LastMessage.Content,
+			CreatedAt:       chat.LastMessage.CreatedAt,
+			ClientMessageID: chat.LastMessage.ClientMessageID,
+			Sequence:        chat.LastMessage.Sequence,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("[ERROR] failed to encode GetUserChats response: %v", err)
 	}
 }
