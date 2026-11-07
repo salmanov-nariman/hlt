@@ -106,3 +106,44 @@ func (r *ChatRepository) GetMessagesAfter(ctx context.Context, chatID string, af
 
 	return messages, nil
 }
+
+func (r *ChatRepository) GetChatMessages(ctx context.Context, chatID string, cursor *int64, limit int) ([]domain.Message, error) {
+	query := `
+		SELECT 
+			id, chat_id, sender_id, content, created_at, client_message_id, sequence
+		FROM messages
+		WHERE chat_id = $1 AND ($2::bigint IS NULL OR sequence < $2)
+		ORDER BY sequence DESC
+		LIMIT $3;
+	`
+
+	rows, err := r.db.Query(ctx, query, chatID, cursor, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch messages: %w", err)
+	}
+	defer rows.Close()
+
+	var messages []domain.Message
+	for rows.Next() {
+		var msg domain.Message
+		err := rows.Scan(
+			&msg.ID,
+			&msg.ChatID, 
+			&msg.SenderID, 
+			&msg.Content, 
+			&msg.CreatedAt, 
+			&msg.ClientMessageID, 
+			&msg.Sequence,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan message: %w", err)
+		}
+		messages = append(messages, msg)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+	
+	return messages, nil
+}

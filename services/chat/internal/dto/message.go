@@ -11,3 +11,8 @@ type MessageResponse struct {
 	ClientMessageID string    `json:"client_message_id"`
 	Sequence        int64     `json:"sequence"`
 }
+
+type PaginatedChatMessagesResponse struct {
+	Messages []MessageResponse `json:"messages"`
+	NextCursor *int64 `json:"next_cursor"`
+}
