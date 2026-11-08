@@ -41,7 +41,7 @@ func (s *ChatService) ProcessMessage(ctx context.Context, senderID, chatID, clie
 		bgCtx := context.WithoutCancel(ctx)
 
 		msgDTO := dto.NewMessageResponse(m)
-		payloadBytes, _ := json.Marshal(msg)
+		payloadBytes, _ := json.Marshal(msgDTO)
 
 		s.wsManager.BroadcastEvent(bgCtx, websocket.Event{
 			Type:          websocket.EventTypeMessageCreated,

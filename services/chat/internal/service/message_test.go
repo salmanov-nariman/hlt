@@ -2,10 +2,12 @@ package service_test
 
 import (
 	"chat/internal/domain"
+	"chat/internal/dto"
 	"chat/internal/service"
 	"chat/internal/websocket"
 	"errors"
 	"strings"
+	"time"
 
 	"context"
 	"encoding/json"
@@ -77,13 +79,10 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
         },
 	}
 
-	wsCalled := false
-	var capturedEvents []websocket.Event
-
+	eventChan := make(chan websocket.Event, 2)
 	mockWS := &mockWSBroadcaster{
 		broadcastEventFunc: func(ctx context.Context, event websocket.Event) {
-			wsCalled = true
-			capturedEvents = append(capturedEvents, event)	
+			eventChan <- event
 		},
 	}
 
@@ -101,13 +100,15 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 		t.Errorf("ожидался ID 'msg_1', получено: '%s'", msg.ID)
 	}
 
-	if !wsCalled {
-		t.Error("ожидалось, что сообщение будет отправлено в вебсокет, но BroadcastEvent не был вызван")
+	var capturedEvents []websocket.Event
+	for i:=0; i<2; i++ {
+		select {
+		case event := <-eventChan:
+			capturedEvents = append(capturedEvents, event)
+		case <-time.After(1 * time.Second):
+			t.Fatalf("Таймаут: ожидалось событие вебсокета, но горутина его не прислала")
+		}
 	}
-
-	if len(capturedEvents) != 2 {
-        t.Fatalf("ожидалось 2 события, получено: %d", len(capturedEvents))
-    }
 
 	expectedUsers := []string{"good_user_1", "good_user_2"}
 
@@ -119,7 +120,7 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
         t.Errorf("ожидались получатели %v для event1, получено %v", expectedUsers, event1.TargetUserIDs)
     }
 
-	var chatMsg domain.Message
+	var chatMsg dto.MessageResponse
 	if err := json.Unmarshal(event1.Payload, &chatMsg); err != nil {
         t.Errorf("ошибка распаковки Payload: %v", err)
     }

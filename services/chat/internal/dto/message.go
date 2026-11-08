@@ -22,8 +22,8 @@ type PostMessageRequest struct {
 }
 
 type PaginatedChatMessagesResponse struct {
-	Messages []MessageResponse `json:"messages"`
-	NextCursor *int64 `json:"next_cursor"`
+	Messages   []MessageResponse `json:"messages"`
+	NextCursor *int64            `json:"next_cursor"`
 }
 
 func NewMessageResponse(msg *domain.Message) *MessageResponse {
