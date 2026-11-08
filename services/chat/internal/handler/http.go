@@ -35,11 +35,8 @@ func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		ChatID          string `json:"chat_id"`
-		ClientMessageID string `json:"client_message_id"`
-		Text            string `json:"text"`
-	}
+	var req dto.PostMessageRequest
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -94,9 +91,7 @@ func (h *ChatHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		PartnerID string `json:"partner_id"`
-	}
+	var req dto.CreateChatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadGateway)
 		w.Write([]byte(`{"code": "VALIDATION_ERROR", "message": "partner_id is required"}`))
@@ -218,11 +213,6 @@ func (h *ChatHandler) SyncMessages(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type MarkReadRequest struct {
-	ChatID           string `json:"chat_id"`
-	LastReadSequence int64  `json:"last_read_sequence"`
-}
-
 func (h *ChatHandler) MarkAsRead(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
@@ -230,7 +220,7 @@ func (h *ChatHandler) MarkAsRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req MarkReadRequest
+	var req dto.MarkReadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return

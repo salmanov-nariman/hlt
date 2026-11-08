@@ -1,0 +1,270 @@
+basePath: /api/v1
+definitions:
+  dto.ChatSummaryResponse:
+    properties:
+      id:
+        type: string
+      last_message:
+        $ref: '#/definitions/dto.MessageResponse'
+      revision:
+        type: integer
+      unread_count:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  dto.CreateChatRequest:
+    properties:
+      partner_id:
+        type: string
+    type: object
+  dto.MarkReadRequest:
+    properties:
+      chat_id:
+        type: string
+      last_read_sequence:
+        type: integer
+    type: object
+  dto.MessageResponse:
+    properties:
+      chat_id:
+        type: string
+      client_message_id:
+        type: string
+      content:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      sender_id:
+        type: string
+      sequence:
+        type: integer
+    type: object
+  dto.PaginatedChatsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/dto.ChatSummaryResponse'
+        type: array
+      next_cursor:
+        type: string
+    type: object
+  dto.PostMessageRequest:
+    properties:
+      chat_id:
+        type: string
+      client_message_id:
+        type: string
+      text:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: API server for chat service
+  title: HLT chat service API
+  version: "1.0"
+paths:
+  /api/chat/messages:
+    get:
+      description: Возвращает список сообщений чата с фильтрацией по sequence
+      parameters:
+      - description: ID чата
+        in: query
+        name: chat_id
+        required: true
+        type: string
+      - description: Sequence сообщения, после которого нужно получить новые
+        in: query
+        name: after_sequence
+        type: integer
+      - description: Лимит сообщений (по умолчанию 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/dto.MessageResponse'
+            type: array
+        "400":
+          description: missing chat_id or invalid parameters
+          schema:
+            type: string
+        "403":
+          description: is not member of chat
+          schema:
+            type: string
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      security:
+      - UserIdAuth: []
+      summary: Получить историю сообщений
+      tags:
+      - messages
+  /api/chat/read:
+    post:
+      consumes:
+      - application/json
+      description: Обновляет статус прочитанных сообщений (last_read_sequence) для
+        текущего пользователя
+      parameters:
+      - description: Данные для отметки о прочтении
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.MarkReadRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "400":
+          description: invalid request body or missing parameters
+          schema:
+            type: string
+        "403":
+          description: is not member of chat
+          schema:
+            type: string
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      security:
+      - UserIdAuth: []
+      summary: Прочитать сообщения
+      tags:
+      - chats
+  /api/chats:
+    get:
+      description: Возвращает пагинированный список чатов текущего пользователя
+      parameters:
+      - description: Лимит чатов (от 1 до 50, по умолчанию 20)
+        in: query
+        name: limit
+        type: integer
+      - description: Курсор для пагинации
+        in: query
+        name: cursor
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.PaginatedChatsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - UserIdAuth: []
+      summary: Получить список чатов
+      tags:
+      - chats
+    post:
+      consumes:
+      - application/json
+      description: Создает новый direct-чат с пользователем или возвращает существующий
+      parameters:
+      - description: ID партнера
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateChatRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Чат уже существует
+          schema:
+            $ref: '#/definitions/dto.ChatSummaryResponse'
+        "201":
+          description: Чат создан
+          schema:
+            $ref: '#/definitions/dto.ChatSummaryResponse'
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+        "502":
+          description: Bad Gateway
+          schema:
+            type: string
+      security:
+      - UserIdAuth: []
+      summary: Создать чат
+      tags:
+      - chats
+  /api/messages:
+    post:
+      consumes:
+      - application/json
+      description: Отправляет новое сообщение в указанный чат
+      parameters:
+      - description: Данные сообщения
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.PostMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Сообщение уже существует
+          schema:
+            $ref: '#/definitions/dto.MessageResponse'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/dto.MessageResponse'
+        "400":
+          description: Invalid JSON
+          schema:
+            type: string
+        "409":
+          description: Conflict
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - UserIdAuth: []
+      summary: Отправить сообщение
+      tags:
+      - messages
+securityDefinitions:
+  UserIdAuth:
+    in: header
+    name: X-User-Id
+    type: apiKey
+swagger: "2.0"

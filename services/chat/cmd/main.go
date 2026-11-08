@@ -1,6 +1,8 @@
 package main
 
 import (
+	_ "chat/docs"
+	httpSwagger "github.com/swaggo/http-swagger"
 	"chat/config"
 	"chat/internal/handler"
 	"chat/internal/repository"
@@ -69,6 +71,8 @@ func main() {
 	})
 
 	r.Handle("/metrics", promhttp.Handler())
+
+	r.Get("/swagger/*", httpSwagger.WrapHandler)
 
 	r.Handle("/*", http.FileServer(http.Dir("./frontend")))
 
