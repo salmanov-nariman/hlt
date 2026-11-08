@@ -25,7 +25,7 @@ func main() {}
 // @Failure      409      {string}  string `{"code":"CLIENT_MESSAGE_ID_CONFLICT"}`
 // @Failure      500      {string}  string "Internal server error"
 // @Router       /api/messages [post]
-func PostMessage()
+func PostMessage() {}
 
 // CreateChat godoc
 // @Summary      Создать чат
@@ -42,7 +42,7 @@ func PostMessage()
 // @Failure      500      {string}  string `{"code": "INTERNAL_ERROR", "message": "Internal server error"}`
 // @Failure      502      {string}  string `{"code": "VALIDATION_ERROR", "message": "partner_id is required"}`
 // @Router       /api/chats [post]
-func CreateChat()
+func CreateChat() {}
 
 // SyncMessages godoc
 // @Summary      Получить историю сообщений
@@ -58,7 +58,7 @@ func CreateChat()
 // @Failure      403             {string}  string "is not member of chat"
 // @Failure      500             {string}  string "internal server error"
 // @Router       /api/chat/messages [get]
-func SyncMessages() 
+func SyncMessages() {}
 
 // MarkAsRead godoc
 // @Summary      Прочитать сообщения
@@ -73,7 +73,7 @@ func SyncMessages()
 // @Failure      403      {string}  string "is not member of chat"
 // @Failure      500      {string}  string "internal server error"
 // @Router       /api/chat/read [post]
-func MarkAsRead()
+func MarkAsRead() {}
 
 // GetUserChats godoc
 // @Summary      Получить список чатов
@@ -87,4 +87,4 @@ func MarkAsRead()
 // @Failure      400     {string}  string `{"code": "INVALID_CURSOR"}`
 // @Failure      500     {string}  string "Internal server error"
 // @Router       /api/chats [get]
-func  GetUserChats()
+func  GetUserChats() {}
