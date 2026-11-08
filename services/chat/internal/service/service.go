@@ -9,7 +9,7 @@ import (
 )
 
 type WSBroadcaster interface {
-	BroadcastEvent(event websocket.Event)
+	BroadcastEvent(ctx context.Context, event websocket.Event)
 }
 
 type ChatRepository interface {
