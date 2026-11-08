@@ -17,3 +17,8 @@ type PostMessageRequest struct {
 	ClientMessageID string `json:"client_message_id"`
 	Text            string `json:"text"`
 }
+
+type PaginatedChatMessagesResponse struct {
+	Messages []MessageResponse `json:"messages"`
+	NextCursor *int64 `json:"next_cursor"`
+}
