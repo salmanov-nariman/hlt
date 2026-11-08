@@ -16,7 +16,6 @@ type MessageResponse struct {
 }
 
 type PostMessageRequest struct {
-	ChatID          string `json:"chat_id"`
 	ClientMessageID string `json:"client_message_id"`
 	Text            string `json:"text"`
 }

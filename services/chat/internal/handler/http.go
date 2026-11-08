@@ -36,13 +36,15 @@ func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	chatID := chi.URLParam(r, "chat_id")
+
 	var req dto.PostMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httputil.JSONError(w, http.StatusBadRequest, "INVALID_JSON", "Неверный формат запроса")
 		return
 	}
 
-	msg, err := h.chatService.ProcessMessage(r.Context(), senderID, req.ChatID, req.ClientMessageID, req.Text)
+	msg, err := h.chatService.ProcessMessage(r.Context(), senderID, chatID, req.ClientMessageID, req.Text)
 
 	if err != nil {
 		if errors.Is(err, domain.ErrMessageConflict) {

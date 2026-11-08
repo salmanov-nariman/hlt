@@ -59,7 +59,7 @@ func main() {
 		r.Use(middleware.AuthMiddleware)
 
 		r.Post("/chats", middleware.REDMetricsMiddleware("/api/chats", chatHandler.CreateChat))
-		r.Post("/messages", middleware.REDMetricsMiddleware("/api/messages", chatHandler.PostMessage))
+		r.Post("/chats/{chat_id}/messages", middleware.REDMetricsMiddleware("/api/messages", chatHandler.PostMessage))
 		r.Post("/chat/read", chatHandler.MarkAsRead)
 
 		r.Get("/sync/messages",  middleware.REDMetricsMiddleware("/api/sync/messages", chatHandler.SyncMessages))
