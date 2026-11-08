@@ -9,12 +9,12 @@ import (
 
 
 type mockWSBroadcaster struct {
-	broadcastEventFunc func(event websocket.Event)
+	broadcastEventFunc func(ctx context.Context, event websocket.Event)
 }
 
-func (m *mockWSBroadcaster) BroadcastEvent(event websocket.Event) {
+func (m *mockWSBroadcaster) BroadcastEvent(ctx context.Context, event websocket.Event) {
 	if m.broadcastEventFunc != nil {
-		m.broadcastEventFunc(event)
+		m.broadcastEventFunc(ctx, event)
 	}
 }
 

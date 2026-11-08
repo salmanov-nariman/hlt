@@ -2,7 +2,6 @@ package service
 
 import (
 	"chat/internal/domain"
-	"chat/internal/repository"
 	"chat/internal/websocket"
 	"context"
 	"encoding/base64"
@@ -80,7 +79,7 @@ func (s *ChatService) UpdateReadStatus(ctx context.Context, chatID, userID strin
 
 	payloadBytes, err := json.Marshal(payload)
 
-	s.wsManager.BroadcastEvent(websocket.Event{
+	s.wsManager.BroadcastEvent(ctx, websocket.Event{
 		Type: websocket.EventTypeChatRead,
 		ChatID: chatID,
 		TargetUserIDs: membersIDs,
@@ -145,8 +144,6 @@ func decodeCursor(cursor string) (*time.Time, *string, error) {
 	return &t, &parts[1], nil 
 }
 
-var ErrUserNotInChat = errors.New("user not in chat")
-
 func (s *ChatService) GetChat(ctx context.Context, chatID, userID string) (domain.ChatSummary, error) {
 	//сначала проверяем состоит ли юзер в чате
 	userIDs, err := s.chatRepository.GetUsersInChat(ctx, chatID)
@@ -154,14 +151,14 @@ func (s *ChatService) GetChat(ctx context.Context, chatID, userID string) (domai
 		return domain.ChatSummary{}, fmt.Errorf("failed to get users in chat: %w", err)
 	}
 	if !slices.Contains(userIDs, userID) {
-		return domain.ChatSummary{}, ErrUserNotInChat
+		return domain.ChatSummary{}, domain.ErrUserNotInChat
 	}
 
 	//достаем объект чата
 	chat, err := s.chatRepository.GetChatByID(ctx, chatID, userID)
 	if err != nil {
-		if errors.Is(err, repository.ErrChatNotFound) {
-			return domain.ChatSummary{}, repository.ErrChatNotFound
+		if errors.Is(err, domain.ErrChatNotFound) {
+			return domain.ChatSummary{}, domain.ErrChatNotFound
 		}
 		return domain.ChatSummary{}, fmt.Errorf("failed to get chat from repo: %w", err)
 	}

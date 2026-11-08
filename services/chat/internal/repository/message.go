@@ -29,13 +29,13 @@ func (r *ChatRepository) SaveMessageWithReadUpdate(ctx context.Context, msg *dom
 
 	if err == nil {
 		if existingContent != msg.Content {
-			return ErrMessageConflict // 409
+			return domain.ErrMessageConflict // 409
 		}
 
 		msg.ID = existingID
 		msg.CreatedAt = existingCreatedAt
 		msg.Sequence = existingSequence
-		return ErrMessageAlreadyExists // 200 OK
+		return domain.ErrMessageAlreadyExists // 200 OK
 	}
 
 	query := `

@@ -81,7 +81,7 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 	var capturedEvents []websocket.Event
 
 	mockWS := &mockWSBroadcaster{
-		broadcastEventFunc: func(event websocket.Event) {
+		broadcastEventFunc: func(ctx context.Context, event websocket.Event) {
 			wsCalled = true
 			capturedEvents = append(capturedEvents, event)	
 		},
@@ -223,7 +223,7 @@ func TestChatService_UpdateReadStatus_Success(t *testing.T) {
 
     wsCalled := false
     mockWS := &mockWSBroadcaster{
-        broadcastEventFunc: func(event websocket.Event) {
+        broadcastEventFunc: func(ctx context.Context, event websocket.Event) {
             wsCalled = true
             
             if event.ChatID != chatID {
