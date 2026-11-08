@@ -1,11 +1,11 @@
 basePath: /api/v1
 definitions:
-  chat_internal_dto.ChatSummaryResponse:
+  dto.ChatSummaryResponse:
     properties:
       id:
         type: string
       last_message:
-        $ref: '#/definitions/chat_internal_dto.MessageResponse'
+        $ref: '#/definitions/dto.MessageResponse'
       revision:
         type: integer
       unread_count:
@@ -13,19 +13,19 @@ definitions:
       updated_at:
         type: string
     type: object
-  chat_internal_dto.CreateChatRequest:
+  dto.CreateChatRequest:
     properties:
       partner_id:
         type: string
     type: object
-  chat_internal_dto.MarkReadRequest:
+  dto.MarkReadRequest:
     properties:
       chat_id:
         type: string
       last_read_sequence:
         type: integer
     type: object
-  chat_internal_dto.MessageResponse:
+  dto.MessageResponse:
     properties:
       chat_id:
         type: string
@@ -42,16 +42,16 @@ definitions:
       sequence:
         type: integer
     type: object
-  chat_internal_dto.PaginatedChatsResponse:
+  dto.PaginatedChatsResponse:
     properties:
       items:
         items:
-          $ref: '#/definitions/chat_internal_dto.ChatSummaryResponse'
+          $ref: '#/definitions/dto.ChatSummaryResponse'
         type: array
       next_cursor:
         type: string
     type: object
-  chat_internal_dto.PostMessageRequest:
+  dto.PostMessageRequest:
     properties:
       chat_id:
         type: string
@@ -91,7 +91,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/chat_internal_dto.MessageResponse'
+              $ref: '#/definitions/dto.MessageResponse'
             type: array
         "400":
           description: missing chat_id or invalid parameters
@@ -122,7 +122,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/chat_internal_dto.MarkReadRequest'
+          $ref: '#/definitions/dto.MarkReadRequest'
       produces:
       - application/json
       responses:
@@ -165,7 +165,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/chat_internal_dto.PaginatedChatsResponse'
+            $ref: '#/definitions/dto.PaginatedChatsResponse'
         "400":
           description: Bad Request
           schema:
@@ -189,18 +189,18 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/chat_internal_dto.CreateChatRequest'
+          $ref: '#/definitions/dto.CreateChatRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Чат уже существует
           schema:
-            $ref: '#/definitions/chat_internal_dto.ChatSummaryResponse'
+            $ref: '#/definitions/dto.ChatSummaryResponse'
         "201":
           description: Чат создан
           schema:
-            $ref: '#/definitions/chat_internal_dto.ChatSummaryResponse'
+            $ref: '#/definitions/dto.ChatSummaryResponse'
         "400":
           description: Bad Request
           schema:
@@ -233,18 +233,18 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/chat_internal_dto.PostMessageRequest'
+          $ref: '#/definitions/dto.PostMessageRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Сообщение уже существует
           schema:
-            $ref: '#/definitions/chat_internal_dto.MessageResponse'
+            $ref: '#/definitions/dto.MessageResponse'
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/chat_internal_dto.MessageResponse'
+            $ref: '#/definitions/dto.MessageResponse'
         "400":
           description: Invalid JSON
           schema:

@@ -57,7 +57,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/chat_internal_dto.MessageResponse"
+                                "$ref": "#/definitions/dto.MessageResponse"
                             }
                         }
                     },
@@ -107,7 +107,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/chat_internal_dto.MarkReadRequest"
+                            "$ref": "#/definitions/dto.MarkReadRequest"
                         }
                     }
                 ],
@@ -172,7 +172,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/chat_internal_dto.PaginatedChatsResponse"
+                            "$ref": "#/definitions/dto.PaginatedChatsResponse"
                         }
                     },
                     "400": {
@@ -213,7 +213,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/chat_internal_dto.CreateChatRequest"
+                            "$ref": "#/definitions/dto.CreateChatRequest"
                         }
                     }
                 ],
@@ -221,13 +221,13 @@ const docTemplate = `{
                     "200": {
                         "description": "Чат уже существует",
                         "schema": {
-                            "$ref": "#/definitions/chat_internal_dto.ChatSummaryResponse"
+                            "$ref": "#/definitions/dto.ChatSummaryResponse"
                         }
                     },
                     "201": {
                         "description": "Чат создан",
                         "schema": {
-                            "$ref": "#/definitions/chat_internal_dto.ChatSummaryResponse"
+                            "$ref": "#/definitions/dto.ChatSummaryResponse"
                         }
                     },
                     "400": {
@@ -282,7 +282,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/chat_internal_dto.PostMessageRequest"
+                            "$ref": "#/definitions/dto.PostMessageRequest"
                         }
                     }
                 ],
@@ -290,13 +290,13 @@ const docTemplate = `{
                     "200": {
                         "description": "Сообщение уже существует",
                         "schema": {
-                            "$ref": "#/definitions/chat_internal_dto.MessageResponse"
+                            "$ref": "#/definitions/dto.MessageResponse"
                         }
                     },
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/chat_internal_dto.MessageResponse"
+                            "$ref": "#/definitions/dto.MessageResponse"
                         }
                     },
                     "400": {
@@ -322,14 +322,14 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "chat_internal_dto.ChatSummaryResponse": {
+        "dto.ChatSummaryResponse": {
             "type": "object",
             "properties": {
                 "id": {
                     "type": "string"
                 },
                 "last_message": {
-                    "$ref": "#/definitions/chat_internal_dto.MessageResponse"
+                    "$ref": "#/definitions/dto.MessageResponse"
                 },
                 "revision": {
                     "type": "integer"
@@ -342,7 +342,7 @@ const docTemplate = `{
                 }
             }
         },
-        "chat_internal_dto.CreateChatRequest": {
+        "dto.CreateChatRequest": {
             "type": "object",
             "properties": {
                 "partner_id": {
@@ -350,7 +350,7 @@ const docTemplate = `{
                 }
             }
         },
-        "chat_internal_dto.MarkReadRequest": {
+        "dto.MarkReadRequest": {
             "type": "object",
             "properties": {
                 "chat_id": {
@@ -361,7 +361,7 @@ const docTemplate = `{
                 }
             }
         },
-        "chat_internal_dto.MessageResponse": {
+        "dto.MessageResponse": {
             "type": "object",
             "properties": {
                 "chat_id": {
@@ -387,13 +387,13 @@ const docTemplate = `{
                 }
             }
         },
-        "chat_internal_dto.PaginatedChatsResponse": {
+        "dto.PaginatedChatsResponse": {
             "type": "object",
             "properties": {
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/chat_internal_dto.ChatSummaryResponse"
+                        "$ref": "#/definitions/dto.ChatSummaryResponse"
                     }
                 },
                 "next_cursor": {
@@ -401,7 +401,7 @@ const docTemplate = `{
                 }
             }
         },
-        "chat_internal_dto.PostMessageRequest": {
+        "dto.PostMessageRequest": {
             "type": "object",
             "properties": {
                 "chat_id": {

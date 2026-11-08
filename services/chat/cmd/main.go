@@ -25,14 +25,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// @title 		   				 HLT chat service API
-// @version 	  				 1.0
-// @description    				 API server for chat service
-// @host           				 localhost:8080
-// @BasePath       				 /api/v1
-// @securityDefinitions.apikey   UserIdAuth
-// @in 							 header
-// @name 						 X-User-Id
 func main() {
 	ctx := context.Background()
 
