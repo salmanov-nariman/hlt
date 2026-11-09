@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -97,6 +98,12 @@ func (m *Manager) routeMessage() {
 	}
 }
 
-func (m *Manager) BroadcastEvent(event Event) {
-	m.broadcast <- event
+func (m *Manager) BroadcastEvent(ctx context.Context, event Event) {
+	select {
+	case m.broadcast <- event:
+		// все хорошо, событие улетело в канал
+	case <-ctx.Done():
+		// завершаем работу горутины если контекст отменился (например сервак отключился)
+	}
+
 }
