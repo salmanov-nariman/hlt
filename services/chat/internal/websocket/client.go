@@ -2,24 +2,30 @@ package websocket
 
 import (
 	"log"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
-// type ClientList map[*Client]bool
+const (
+	pongWait   = 60 * time.Second  
+	pingPeriod = (pongWait * 9) / 10
+	writeWait  = 10 * time.Second
+)
+
 type Client struct {
+	ID         string
 	connection *websocket.Conn
 	manager    *Manager
 	egress     chan []byte
-	userID     string
 }
 
-func NewClient(conn *websocket.Conn, manager *Manager, userID string) *Client {
+func NewClient(userID string, conn *websocket.Conn, manager *Manager) *Client {
 	return &Client{
+		ID:         userID,
 		connection: conn,
 		manager:    manager,
-		egress:     make(chan []byte),
-		userID:     userID,
+		egress:     make(chan []byte, 256),
 	}
 }
 
@@ -28,8 +34,14 @@ func (c *Client) readMessage() {
 		c.manager.removeClient(c)
 	}()
 
+	c.connection.SetReadDeadline(time.Now().Add(pongWait))
+
+	c.connection.SetPongHandler(func(string) error {
+		c.connection.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
 	for {
-		//messageType, payload, err := c.connection.ReadMessage()
 		_, _, err := c.connection.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
@@ -37,41 +49,38 @@ func (c *Client) readMessage() {
 			}
 			break
 		}
-		//	var event Event
-		//	if err := json.Unmarshal(payload, &event); err != nil {
-		//		log.Printf("received invalid JSON: %v", err)
-		//		continue
-		//	}
-		//
-		//	event.RoomID = c.roomID
-		//
-		//	c.manager.broadcast <- event
-		//
-		//	log.Println(messageType)
-		//	log.Println(string(payload))
 	}
 }
 
 func (c *Client) writeMessage() {
+	ticker := time.NewTicker(pingPeriod) // он будет тикать каждые 54 секунды
+
 	defer func() {
+		ticker.Stop()
 		c.manager.removeClient(c)
 	}()
 
 	for {
 		select {
 		case message, ok := <-c.egress:
-			if !ok {
-				if err := c.connection.WriteMessage(websocket.CloseMessage, nil); err != nil {
-					log.Printf("connection closed: %v", err)
+			c.connection.SetWriteDeadline(time.Now().Add(writeWait)) // если долго отправляется сообщение, больше 10 сек, то обрываем соединение
 
-				}
+			if !ok {
+				c.connection.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 
 			if err := c.connection.WriteMessage(websocket.TextMessage, message); err != nil {
 				log.Printf("failed to send message: %v", err)
+				return // Выходим, сокет сломан
+
 			}
-			log.Println("message sent")
+
+		case <-ticker.C:
+			c.connection.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.connection.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
 }

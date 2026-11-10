@@ -1,6 +1,8 @@
 package websocket
 
 import (
+	"chat/internal/httputil"
+	"chat/middleware"
 	"context"
 	"encoding/json"
 	"log"
@@ -14,13 +16,16 @@ var (
 	websocketUpgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
 	}
 )
 
 type Manager struct {
-	clients map[string]*Client
+	clients map[string]*Client // мапа клиентов, которые в онлайне
 	sync.RWMutex
-	broadcast chan Event
+	broadcast chan Event // почтовый ящик, который связывает бизнес-логику с миром вебсокетов
 }
 
 func NewManager() *Manager {
@@ -37,9 +42,9 @@ func NewManager() *Manager {
 func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 	log.Println("new connection")
 
-	userID := r.Header.Get("X-User-Id")
-	if userID == "" {
-		http.Error(w, "X-User-Id header is missing", http.StatusBadRequest)
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
 		return
 	}
 
@@ -49,7 +54,7 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := NewClient(conn, m, userID)
+	client := NewClient(userID, conn, m)
 	m.addClient(client)
 
 	go client.readMessage()
@@ -60,20 +65,20 @@ func (m *Manager) addClient(client *Client) {
 	m.Lock()
 	defer m.Unlock()
 
-	m.clients[client.userID] = client
-	log.Printf("Client added. UserID: %s, Total connections: %d\n", client.userID, len(m.clients))
+	m.clients[client.ID] = client
+	log.Printf("Client added. UserID: %s, Total connections: %d\n", client.ID, len(m.clients))
 }
 
 func (m *Manager) removeClient(client *Client) {
 	m.Lock()
 	defer m.Unlock()
 
-	if _, ok := m.clients[client.userID]; ok {
+	if _, ok := m.clients[client.ID]; ok {
 		if err := client.connection.Close(); err != nil {
 			log.Println(err)
 		}
-		delete(m.clients, client.userID)
-		log.Printf("Client removed. UserID: %s\n", client.userID)
+		delete(m.clients, client.ID)
+		log.Printf("Client removed. UserID: %s\n", client.ID)
 	}
 }
 
