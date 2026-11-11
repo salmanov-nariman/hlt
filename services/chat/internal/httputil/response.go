@@ -28,3 +28,7 @@ func JSON(w http.ResponseWriter, status int, payload any) {
 		log.Printf("[ERROR] failed to encode response: %v", err)
 	}
 }
+
+func NoContent(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusNoContent)
+}

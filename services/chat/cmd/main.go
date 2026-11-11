@@ -52,21 +52,22 @@ func main() {
 
 	r := chi.NewRouter()
 
-	r.Use(chiMiddleware.Logger)
 	r.Use(chiMiddleware.Recoverer)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Use(middleware.AuthMiddleware)
 
 		r.Post("/chats", middleware.REDMetricsMiddleware("/api/chats", chatHandler.CreateChat))
-		r.Post("/chats/{chat_id}/messages", middleware.REDMetricsMiddleware("/api/messages", chatHandler.PostMessage))
-		r.Post("/chat/read", chatHandler.MarkAsRead)
-
-		r.Get("/sync/messages",  middleware.REDMetricsMiddleware("/api/sync/messages", chatHandler.SyncMessages))
 		r.Get("/chats", middleware.REDMetricsMiddleware("/api/chats", chatHandler.GetUserChats))
-		r.Get("/chat/{chat_id}", middleware.REDMetricsMiddleware("/api/chat/{chat_id}", chatHandler.GetChat))
+		r.Get("/chats/{chat_id}", middleware.REDMetricsMiddleware("/api/chat/{chat_id}", chatHandler.GetChat))
+
+		r.Post("/chats/{chat_id}/messages", middleware.REDMetricsMiddleware("/api/messages", chatHandler.PostMessage))
 		r.Get("/chats/{chat_id}/messages", middleware.REDMetricsMiddleware("/api/chat/messages", chatHandler.GetChatMessages))
 
+		r.Post("/chats/{chat_id}/read", middleware.REDMetricsMiddleware("/api/chats/{chat_id}/read", chatHandler.MarkAsRead))
+
+		r.Get("/sync/messages",  middleware.REDMetricsMiddleware("/api/sync/messages", chatHandler.SyncMessages))
+		
 		r.Get("/chat/ws", wsManager.ServeWS)
 	})
 

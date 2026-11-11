@@ -25,11 +25,6 @@ func NewChatHandler(chatService *service.ChatService) *ChatHandler {
 }
 
 func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		httputil.JSONError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Ошибка метода")
-		return
-	}
-
 	senderID, ok := middleware.GetUserID(r.Context())
 	if !ok {
 		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
@@ -63,7 +58,7 @@ func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 		}
 
 		log.Printf("ProcessMessage error: %v", err)
-		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Внутренняя ошибка сервера")
+		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
 		return
 	}
 	
@@ -87,43 +82,32 @@ func mapDomainToDTO(msg *domain.Message) *dto.MessageResponse {
 }
 
 func (h *ChatHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	senderID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")		
 		return
 	}
 
 	var req dto.CreateChatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadGateway)
-		w.Write([]byte(`{"code": "VALIDATION_ERROR", "message": "partner_id is required"}`))
+		httputil.JSONError(w, http.StatusBadRequest, "INVALID_JSON", "Неверный формат запроса")
 		return
 	}
 
 	chat, isNew, err := h.chatService.CreateOrGetDirectChat(r.Context(), senderID, req.PartnerID)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
 
 		if errors.Is(err, service.ErrInvalidPartner) {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(`{"code": "INVALID_PARTNER", "message": "Cannot create chat with yourself"}`))
+			httputil.JSONError(w, http.StatusBadRequest, "INVALID_PARTNER", "Невозможно создать чат самим с собой")
 			return
 		}
 
 		if errors.Is(err, service.ErrUserNotFound) {
-			w.WriteHeader(http.StatusNotFound)
-			w.Write([]byte(`{"code": "USER_NOT_FOUND", "message": "Partner user does not exist"}`))
+			httputil.JSONError(w, http.StatusNotFound, "USER_NOT_FOUND", "")
 			return
 		}
 
-		log.Printf("[ERROR] CreateOrGetDirectChat failed: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"code": "INTERNAL_ERROR", "message": "Internal server error"}`))
+		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
 		return
 	}
 
@@ -145,28 +129,24 @@ func (h *ChatHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	statusCode := http.StatusOK
 	if isNew {
-		w.WriteHeader(http.StatusCreated)
-	} else {
-		w.WriteHeader(http.StatusOK)
+		statusCode = http.StatusCreated
 	}
 
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("[ERROR] Failed to write CreateChat response: %v", err)
-	}
+	httputil.JSON(w, statusCode, response)
 }
 
 func (h *ChatHandler) SyncMessages(w http.ResponseWriter, r *http.Request) {
 	senderID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
 		return
 	}
 
 	chatID := r.URL.Query().Get("chat_id")
 	if chatID == "" {
-		http.Error(w, "missing chat_id query parameter", http.StatusBadRequest)
+		httputil.JSONError(w, http.StatusBadRequest, "MISSING_QUERY_PARAM", "Отсутствует query parameter: chat_id")
 		return
 	}
 
@@ -175,7 +155,7 @@ func (h *ChatHandler) SyncMessages(w http.ResponseWriter, r *http.Request) {
 	if afterSeqStr != "" {
 		parsedSeq, err := strconv.ParseInt(afterSeqStr, 10, 64)
 		if err != nil {
-			http.Error(w, "invalid after_sequence parameter", http.StatusBadRequest)
+			httputil.JSONError(w, http.StatusBadRequest, "INVALID_QUERY_PARAM", "")
 			return
 		}
 		afterSequence = parsedSeq
@@ -193,11 +173,11 @@ func (h *ChatHandler) SyncMessages(w http.ResponseWriter, r *http.Request) {
 	messages, err := h.chatService.SyncMessages(r.Context(), senderID, chatID, afterSequence, limit)
 	if err != nil {
 		if strings.Contains(err.Error(), "is not member of chat") {
-			http.Error(w, err.Error(), http.StatusForbidden)
+			httputil.JSONError(w, http.StatusForbidden, "FORBIDDEN", "")
 			return
 		}
 
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
 		return
 	}
 
@@ -214,47 +194,47 @@ func (h *ChatHandler) SyncMessages(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "failed to encode response", http.StatusInternalServerError)
-	}
+	httputil.JSON(w, http.StatusOK, response)
 }
 
 func (h *ChatHandler) MarkAsRead(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
 		return
 	}
+
+	chatID := chi.URLParam(r, "chat_id")
 
 	var req dto.MarkReadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		httputil.JSONError(w, http.StatusBadRequest, "INVALID_JSON", "Неверный формат запроса")
 		return
 	}
 
-	if req.ChatID == "" || req.LastReadSequence <= 0 {
-		http.Error(w, "chat_id and valid last_read_sequence are required", http.StatusBadRequest)
+	if req.LastReadSequence <= 0 {
+		httputil.JSONError(w, http.StatusBadRequest, "INVALID_JSON", "")
 		return
 	}
 
-	err := h.chatService.UpdateReadStatus(r.Context(), req.ChatID, userID, req.LastReadSequence)
+	err := h.chatService.UpdateReadStatus(r.Context(), chatID, userID, req.LastReadSequence)
 	if err != nil {
 		if strings.Contains(err.Error(), "is not member of chat") {
-			http.Error(w, err.Error(), http.StatusForbidden)
+			httputil.JSONError(w, http.StatusForbidden, "FORBIDDEN", "")
 			return
 		}
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+
+		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
+	httputil.NoContent(w)
 }
 
 func (h *ChatHandler) GetUserChats(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
 		return
 	}
 
@@ -266,7 +246,7 @@ func (h *ChatHandler) GetUserChats(w http.ResponseWriter, r *http.Request) {
 			}
 			limit = l
 		} else {
-			http.Error(w, `{"code": "INVALID_PAGINATION"}`, http.StatusBadRequest)
+			httputil.JSONError(w, http.StatusBadRequest, "INVALID_PAGINATION", "")
 			return
 		}
 
@@ -277,13 +257,11 @@ func (h *ChatHandler) GetUserChats(w http.ResponseWriter, r *http.Request) {
 	chats, nextCursor, err := h.chatService.GetUserChats(r.Context(), userID, limit, cursor)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidCursor) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(`{"code": "INVALID_CURSOR"}`))
+			httputil.JSONError(w, http.StatusBadRequest, "INVALID_CURSOR", "")
 			return
 		}
 		log.Printf("chatService.GetUserChats error: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
 		return
 	}
 
@@ -313,19 +291,13 @@ func (h *ChatHandler) GetUserChats(w http.ResponseWriter, r *http.Request) {
 		response.Items = append(response.Items, summaryDTO)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("failed to encode GetUserChats response: %v", err)
-	}
+	httputil.JSON(w, http.StatusOK, response)
 }
 
 func (h *ChatHandler) GetChat(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"code": "UNAUTHORIZED", "message": "Требуется авторизация"}`))
+		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
 		return
 	}
 
@@ -333,16 +305,13 @@ func (h *ChatHandler) GetChat(w http.ResponseWriter, r *http.Request) {
 
 	chat, err := h.chatService.GetChat(r.Context(), chatID, userID)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
 
 		if errors.Is(err, domain.ErrChatNotFound) || errors.Is(err, domain.ErrUserNotInChat) {
-			w.WriteHeader(http.StatusNotFound)
-			w.Write([]byte(`{"code": "NOT_FOUND", "message": "Чат не найден"}`))
+			httputil.JSONError(w, http.StatusNotFound, "NOT_FOUND", "Чат не найден")
 			return
 		}
 
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"code": "INTERNAL_ERROR", "message": "Внутренняя ошибка сервера"}`))
+		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
 		return
 	}
 
@@ -364,25 +333,19 @@ func (h *ChatHandler) GetChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("[ERROR] failed to encode GetUserChats response: %v", err)
-	}
+	httputil.JSON(w, http.StatusOK, resp)
 }
 
 func (h *ChatHandler) GetChatMessages(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"code": "UNAUTHORIZED", "message": "Требуется авторизация"}`))
+		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
 		return
 	}
 
 	chatID := chi.URLParam(r, "chat_id")
 	if chatID == "" {
-		w.WriteHeader(http.StatusBadRequest)
+		httputil.JSONError(w, http.StatusBadRequest, "INVALID_URL", "")
 		return
 	}
 
@@ -401,9 +364,7 @@ func (h *ChatHandler) GetChatMessages(w http.ResponseWriter, r *http.Request) {
 	if cursorStr := r.URL.Query().Get("cursor"); cursorStr != "" {
 		parsedCursor, err := strconv.ParseInt(cursorStr, 10, 64)
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(`{"code": "INVALID_CURSOR", "message": "Некорректный формат курсора"}`))
+			httputil.JSONError(w, http.StatusBadRequest, "INVALID_CURSOR", "Некорректный формат курсора")
 			return
 		}
 		cursor = &parsedCursor
@@ -411,15 +372,13 @@ func (h *ChatHandler) GetChatMessages(w http.ResponseWriter, r *http.Request) {
 
 	messages, nextCursor, err := h.chatService.GetChatMessages(r.Context(), chatID, userID, cursor, limit)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
+
 		if errors.Is(err, service.ErrUserNotFound) {
-			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte(`{"code": "FORBIDDEN", "message": "Нет доступа к чату"}`))
+			httputil.JSONError(w, http.StatusForbidden, "FORBIDDEN", "Нет доступа к чату")
 			return
 		}
 
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"code": "INTERNAL_ERROR", "message": "Внутренняя ошибка сервера"}`))
+		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
 		return
 	}
 
@@ -440,9 +399,5 @@ func (h *ChatHandler) GetChatMessages(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("[ERROR] failed to encode GetChatMessages response: %v", err)
-	}
+	httputil.JSON(w, http.StatusOK, response)
 }
