@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"chat/internal/broker"
 	"chat/internal/domain"
 	"chat/internal/dto"
 	"chat/internal/httputil"
@@ -17,11 +18,12 @@ import (
 )
 
 type ChatHandler struct {
-	chatService *service.ChatService
+	chatService   *service.ChatService
+	kafkaProducer *broker.Producer
 }
 
-func NewChatHandler(chatService *service.ChatService) *ChatHandler {
-	return &ChatHandler{chatService: chatService}
+func NewChatHandler(chatService *service.ChatService, kafkaProducer *broker.Producer) *ChatHandler {
+	return &ChatHandler{chatService: chatService, kafkaProducer: kafkaProducer}
 }
 
 func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
@@ -61,7 +63,7 @@ func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
 		return
 	}
-	
+
 	httputil.JSON(w, http.StatusCreated, mapDomainToDTO(msg))
 }
 

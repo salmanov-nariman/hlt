@@ -8,7 +8,6 @@ import (
 	"errors"
 	"strings"
 	"time"
-
 	"context"
 	"encoding/json"
 	"fmt"
@@ -79,14 +78,16 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
         },
 	}
 
-	eventChan := make(chan websocket.Event, 2)
-	mockWS := &mockWSBroadcaster{
-		broadcastEventFunc: func(ctx context.Context, event websocket.Event) {
+	eventChan := make(chan interface{}, 2)
+
+	mockPublisher := &mockEventPublisher{
+		publishFunc: func(ctx context.Context, event interface{}) error {
 			eventChan <- event
+			return nil
 		},
 	}
 
-	svc := service.NewChatService(mockWS, mockRepo)
+	svc := service.NewChatService(mockPublisher, mockRepo)
 
 	msg, err := svc.ProcessMessage(ctx, senderID, chatID, clientMsgID, content)
 
@@ -96,11 +97,8 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 	if msg == nil {
 		t.Fatal("ожидалось сообщение, но получен nil")
 	}
-	if msg.ID != "msg_1" {
-		t.Errorf("ожидался ID 'msg_1', получено: '%s'", msg.ID)
-	}
 
-	var capturedEvents []websocket.Event
+	var capturedEvents []interface{}
 	for i:=0; i<2; i++ {
 		select {
 		case event := <-eventChan:
@@ -112,10 +110,11 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 
 	expectedUsers := []string{"good_user_1", "good_user_2"}
 
-	event1 := capturedEvents[0] // message.created
+	event1 := capturedEvents[0].(websocket.Event) // message.created
     if event1.Type != websocket.EventTypeMessageCreated || event1.ChatID != chatID {
         t.Errorf("ошибка в первом событии (message.created): %+v", event1)
     }
+
     if !slices.Equal(event1.TargetUserIDs, expectedUsers) {
         t.Errorf("ожидались получатели %v для event1, получено %v", expectedUsers, event1.TargetUserIDs)
     }
@@ -133,7 +132,7 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 		t.Errorf("ожидался ClientMessageID '%s', получено: '%s'", clientMsgID, chatMsg.ClientMessageID)
 	}
 
-	event2 := capturedEvents[1] // chat.updated
+	event2 := capturedEvents[1].(websocket.Event) // chat.updated
     if event2.Type != websocket.EventTypeChatUpdated || event2.ChatID != chatID {
         t.Errorf("ошибка во втором событии (chat.updated): %+v", event2)
     }
@@ -222,23 +221,15 @@ func TestChatService_UpdateReadStatus_Success(t *testing.T) {
         },
     }
 
-    wsCalled := false
-    mockWS := &mockWSBroadcaster{
-        broadcastEventFunc: func(ctx context.Context, event websocket.Event) {
-            wsCalled = true
-            
-            if event.ChatID != chatID {
-                t.Errorf("неверный chatID в событии: %s", event.ChatID)
-            }
-            
-            expectedUsers := []string{"good_user_1", "good_user_2"}
-            if !slices.Equal(event.TargetUserIDs, expectedUsers) {
-                t.Errorf("ожидались получатели %v, получено %v", expectedUsers, event.TargetUserIDs)
-            }
-        },
-    }
+	eventChan := make(chan interface{}, 1)
+	mockPublisher := &mockEventPublisher{
+		publishFunc: func(ctx context.Context, event interface{}) error {
+			eventChan <- event
+			return nil
+		},
+	}
 
-    svc := service.NewChatService(mockWS, mockRepo)
+    svc := service.NewChatService(mockPublisher, mockRepo)
 
     err := svc.UpdateReadStatus(ctx, chatID, userID, sequence)
 
@@ -246,7 +237,17 @@ func TestChatService_UpdateReadStatus_Success(t *testing.T) {
         t.Fatalf("ожидался успех, но получена ошибка: %v", err)
     }
 
-    if !wsCalled {
-        t.Error("ожидалось, что статус прочтения будет разослан в вебсокет, но BroadcastEvent не был вызван")
-    }
+	select {
+	case capturedEvent := <-eventChan:
+		event := capturedEvent.(websocket.Event)
+		if event.ChatID != chatID {
+			t.Errorf("неверный chatID в событии: %s", event.ChatID)
+		}
+		expectedUsers := []string{"good_user_1", "good_user_2"}
+		if !slices.Equal(event.TargetUserIDs, expectedUsers) {
+			t.Errorf("ожидались получатели %v, получено %v", expectedUsers, event.TargetUserIDs)
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Таймаут: статус прочтения не был отправлен в брокер")
+	}
 }

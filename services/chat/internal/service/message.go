@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 
 	"chat/internal/domain"
@@ -43,12 +44,15 @@ func (s *ChatService) ProcessMessage(ctx context.Context, senderID, chatID, clie
 		msgDTO := dto.NewMessageResponse(m)
 		payloadBytes, _ := json.Marshal(msgDTO)
 
-		s.wsManager.BroadcastEvent(bgCtx, websocket.Event{
+		err := s.kafkaProducer.Publish(bgCtx, websocket.Event{
 			Type:          websocket.EventTypeMessageCreated,
 			ChatID:        chatID,
 			Payload:       payloadBytes,
 			TargetUserIDs: memberIDs,
 		})
+		if err != nil {
+			log.Printf("[ChatSvc] Error calling Publish: %v", err)
+		}
 
 		// обновляем статус события, чтобы можно было обновить список чатов
 		chatUpdatedPayload := dto.ChatUpdatedEvent{
@@ -58,12 +62,15 @@ func (s *ChatService) ProcessMessage(ctx context.Context, senderID, chatID, clie
 
 		updatedPayloadBytes, _ := json.Marshal(chatUpdatedPayload)
 
-		s.wsManager.BroadcastEvent(bgCtx, websocket.Event{
+		err = s.kafkaProducer.Publish(bgCtx, websocket.Event{
 			Type:          websocket.EventTypeChatUpdated,
 			ChatID:        chatID,
 			Payload:       updatedPayloadBytes,
 			TargetUserIDs: memberIDs,
 		})
+		if err != nil {
+			log.Printf("[ChatSvc] Error calling Publish: %v", err)
+		}
 	}(msg, memberIDs)
 
 	return msg, nil
