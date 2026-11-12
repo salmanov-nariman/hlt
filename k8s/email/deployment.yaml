@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: email-service
+  namespace: hlt
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: email
+  template:
+    metadata:
+      labels:
+        app: email
+    spec:
+      containers:
+        - name: email-container
+          image: ghcr.io/salmanov-nariman/hlt-email:latest
+          imagePullPolicy: Always
+          ports:
+            - name: grpc
+              containerPort: 9090
+          envFrom:
+            - configMapRef:
+                name: email-config
+            - secretRef:
+                name: email-secret
