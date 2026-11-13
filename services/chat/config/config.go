@@ -3,10 +3,12 @@ package config
 import "os"
 
 type Config struct {
-	HTTPPort    string
-	WorkerAddr  string
-	DatabaseURL string
 	RedisAddr   string
+	HTTPPort     string
+	WorkerAddr   string
+	DatabaseURL  string
+	KafkaBrokers string
+	KafkaWSTopic string
 }
 
 func Load() *Config {
@@ -16,6 +18,8 @@ func Load() *Config {
 		WorkerAddr:  getEnv("WORKER_SERVICE_ADDR", "localhost:50051"),
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/chat_db?sslmode=disable"),
 		RedisAddr:   getEnv("REDIS_ADDR", "localhost:6379"),
+		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
+		KafkaWSTopic: getEnv("KAFKA_WS_TOPIC", "chat-ws-events"),
 	}
 }
 

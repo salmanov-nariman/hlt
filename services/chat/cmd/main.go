@@ -3,6 +3,7 @@ package main
 import (
 	"chat/config"
 	_ "chat/docs"
+	"chat/internal/broker"
 	"chat/internal/handler"
 	"chat/internal/repository"
 	"chat/internal/service"
@@ -14,9 +15,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-
-	"github.com/redis/go-redis/v9"
-	httpSwagger "github.com/swaggo/http-swagger"
+	"os"
+	"strings"
 
 	"github.com/go-chi/chi"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
@@ -25,6 +25,8 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
+	httpSwagger "github.com/swaggo/http-swagger"
 )
 
 func main() {
@@ -53,8 +55,20 @@ func main() {
 
 	wsManager := websocket.NewManager(rdb)
 	chatRepository := repository.NewChatRepository(dbPool)
-	chatService := service.NewChatService(wsManager, chatRepository)
-	chatHandler := handler.NewChatHandler(chatService)
+	
+	kafkaBrokers := strings.Split(cfg.KafkaBrokers, ",")
+	wsTopic := cfg.KafkaWSTopic
+
+	kafkaProducer := broker.NewProducer(kafkaBrokers, wsTopic)
+	defer kafkaProducer.Close()
+
+	kafkaConsumer := broker.NewConsumer(kafkaBrokers, wsTopic, wsManager)
+	defer kafkaConsumer.Close()
+
+	go kafkaConsumer.Start(ctx)
+
+	chatService := service.NewChatService(kafkaProducer, chatRepository)
+	chatHandler := handler.NewChatHandler(chatService, kafkaProducer)
 
 	r := chi.NewRouter()
 
@@ -80,11 +94,15 @@ func main() {
 	r.Handle("/metrics", promhttp.Handler())
 
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
-
 	r.Handle("/*", http.FileServer(http.Dir("./frontend")))
 
-	log.Println("Server is starting on :8080...")
-	log.Fatal(http.ListenAndServe(":8080", r))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Printf("Server is starting on :%s...", port)
+	log.Fatal(http.ListenAndServe(":"+port, r))
 }
 
 func runMigrations(dbUrl string) error {
