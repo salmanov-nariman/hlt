@@ -18,8 +18,6 @@ import (
 	"os"
 	"strings"
 
-	httpSwagger "github.com/swaggo/http-swagger"
-
 	"github.com/go-chi/chi"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/golang-migrate/migrate/v4"
@@ -27,6 +25,8 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
+	httpSwagger "github.com/swaggo/http-swagger"
 )
 
 func main() {
@@ -49,7 +49,11 @@ func main() {
 	}
 	log.Println("Успешное подключение к PostgreSQL!")
 
-	wsManager := websocket.NewManager()
+	rdb := redis.NewClient(&redis.Options{
+		Addr: cfg.RedisAddr, 
+	})
+
+	wsManager := websocket.NewManager(rdb)
 	chatRepository := repository.NewChatRepository(dbPool)
 	
 	kafkaBrokers := strings.Split(cfg.KafkaBrokers, ",")

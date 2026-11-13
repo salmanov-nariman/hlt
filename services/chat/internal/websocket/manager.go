@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
+	"github.com/redis/go-redis/v9"
 )
 
 var (
@@ -26,12 +27,14 @@ type Manager struct {
 	clients map[string]*Client // мапа клиентов, которые в онлайне
 	sync.RWMutex
 	broadcast chan Event // почтовый ящик, который связывает бизнес-логику с миром вебсокетов
+	redis     *redis.Client
 }
 
-func NewManager() *Manager {
+func NewManager(rdb *redis.Client) *Manager {
 	manager := &Manager{
 		clients:   make(map[string]*Client),
 		broadcast: make(chan Event),
+		redis:     rdb,
 	}
 
 	go manager.routeMessage()
@@ -63,22 +66,30 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 
 func (m *Manager) addClient(client *Client) {
 	m.Lock()
-	defer m.Unlock()
-
 	m.clients[client.ID] = client
-	log.Printf("Client added. UserID: %s, Total connections: %d\n", client.ID, len(m.clients))
+	log.Printf("[WS Manager] Client added. UserID: %s, Total connections: %d\n", client.ID, len(m.clients))
+	m.Unlock()
+
+	err := m.redis.Set(context.Background(), "online"+client.ID, "true", 0).Err()
+	if err != nil {
+		log.Printf("[WS Manager] Error writting status to redis: %v", err)
+	}
 }
 
 func (m *Manager) removeClient(client *Client) {
 	m.Lock()
-	defer m.Unlock()
-
 	if _, ok := m.clients[client.ID]; ok {
 		if err := client.connection.Close(); err != nil {
 			log.Println(err)
 		}
 		delete(m.clients, client.ID)
 		log.Printf("Client removed. UserID: %s\n", client.ID)
+	}
+	m.Unlock()
+	
+	err := m.redis.Del(context.Background(), "online"+client.ID).Err()
+	if err != nil {
+		log.Printf("[WS Manager] Failed to delete status in redis: ")
 	}
 }
 
