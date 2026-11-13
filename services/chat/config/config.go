@@ -6,14 +6,16 @@ type Config struct {
 	HTTPPort    string
 	WorkerAddr  string
 	DatabaseURL string
+	RedisAddr   string
 }
 
 func Load() *Config {
 	return &Config{
-		HTTPPort:    getEnv("HTTP_PORT", "8080"),
+		HTTPPort: getEnv("HTTP_PORT", "8080"),
 		// WorkerAddr:  getEnv("WORKER_SERVICE_ADDR", "worker-service:50051"),
 		WorkerAddr:  getEnv("WORKER_SERVICE_ADDR", "localhost:50051"),
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/chat_db?sslmode=disable"),
+		RedisAddr:   getEnv("REDIS_ADDR", "localhost:6379"),
 	}
 }
 

@@ -9,12 +9,29 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gorilla/websocket"
+	"github.com/redis/go-redis/v9"
 )
 
+func setupTestRedis(t *testing.T) *redis.Client {
+	t.Helper()
+
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("не удалось запустить miniredis: %v", err)
+	}
+	
+	t.Cleanup(mr.Close)
+
+	return redis.NewClient(&redis.Options{
+		Addr: mr.Addr(),
+	})
+}
 
 func TestManager_ServeWS_ConnectAndDisconnect(t *testing.T) {
-	m := NewManager()
+	rdb := setupTestRedis(t)
+	m := NewManager(rdb)
 
 	// оборачиваем ServeWS в auth мидлвейр
 	handler := middleware.AuthMiddleware(http.HandlerFunc(m.ServeWS)) 
@@ -57,7 +74,8 @@ func TestManager_ServeWS_ConnectAndDisconnect(t *testing.T) {
 }
 
 func TestManager_BroadcastEvent(t *testing.T) {
-	m := NewManager()
+	rdb := setupTestRedis(t)
+	m := NewManager(rdb)
 
 	handler := middleware.AuthMiddleware(http.HandlerFunc(m.ServeWS))
 	server := httptest.NewServer(handler)
@@ -99,7 +117,8 @@ func TestManager_BroadcastEvent(t *testing.T) {
 }
 
 func TestManager_ServeWS_MissingUserID(t *testing.T) {
-	m := NewManager()
+	rdb := setupTestRedis(t)
+	m := NewManager(rdb)
 	handler := middleware.AuthMiddleware(http.HandlerFunc(m.ServeWS))
 	server := httptest.NewServer(handler)
 	defer server.Close()

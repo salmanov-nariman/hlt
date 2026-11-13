@@ -1,9 +1,8 @@
 package main
 
 import (
-	_ "chat/docs"
-	httpSwagger "github.com/swaggo/http-swagger"
 	"chat/config"
+	_ "chat/docs"
 	"chat/internal/handler"
 	"chat/internal/repository"
 	"chat/internal/service"
@@ -15,6 +14,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+
+	"github.com/redis/go-redis/v9"
+	httpSwagger "github.com/swaggo/http-swagger"
 
 	"github.com/go-chi/chi"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
@@ -45,7 +47,11 @@ func main() {
 	}
 	log.Println("Успешное подключение к PostgreSQL!")
 
-	wsManager := websocket.NewManager()
+	rdb := redis.NewClient(&redis.Options{
+		Addr: cfg.RedisAddr, 
+	})
+
+	wsManager := websocket.NewManager(rdb)
 	chatRepository := repository.NewChatRepository(dbPool)
 	chatService := service.NewChatService(wsManager, chatRepository)
 	chatHandler := handler.NewChatHandler(chatService)
