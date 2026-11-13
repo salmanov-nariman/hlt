@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 	"strings"
 	"time"
@@ -79,13 +80,16 @@ func (s *ChatService) UpdateReadStatus(ctx context.Context, chatID, userID strin
 
 	payloadBytes, err := json.Marshal(payload)
 
-	s.wsManager.BroadcastEvent(ctx, websocket.Event{
+	err = s.kafkaProducer.Publish(ctx, websocket.Event{
 		Type: websocket.EventTypeChatRead,
 		ChatID: chatID,
 		TargetUserIDs: membersIDs,
 		Payload: payloadBytes,
 	})
-
+	if err != nil {
+		log.Printf("Failed to publish chat read event to Kafka: %v", err)
+	}
+	
 	return nil
 }
 

@@ -5,12 +5,8 @@ import (
 	"time"
 
 	"chat/internal/domain"
-	"chat/internal/websocket"
 )
 
-type WSBroadcaster interface {
-	BroadcastEvent(ctx context.Context, event websocket.Event)
-}
 
 type ChatRepository interface {
 	GetUsersInChat(ctx context.Context, chatID string) ([]string, error)
@@ -24,14 +20,18 @@ type ChatRepository interface {
 	GetChatMessages(ctx context.Context, chatID string, cursor *int64, limit int) ([]domain.Message, error)
 }
 
-type ChatService struct {
-	wsManager      WSBroadcaster
-	chatRepository ChatRepository
+type Producer interface {
+	Publish(ctx context.Context, event any) error
 }
 
-func NewChatService(wsManager WSBroadcaster, repo ChatRepository) *ChatService {
+type ChatService struct {
+	chatRepository ChatRepository
+	kafkaProducer  Producer
+}
+
+func NewChatService(producer Producer, repo ChatRepository) *ChatService {
 	return &ChatService{
-		wsManager:      wsManager,
+		kafkaProducer:  producer,
 		chatRepository: repo,
 	}
 }

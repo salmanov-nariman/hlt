@@ -1,2 +1,4 @@
 .idea/
 .services/chat/frontend/
+/k8s/auth/secret.yaml
+/k8s/email/secret.yaml

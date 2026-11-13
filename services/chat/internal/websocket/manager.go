@@ -97,7 +97,7 @@ func (m *Manager) routeMessage() {
 	for event := range m.broadcast {
 		data, err := json.Marshal(event)
 		if err != nil {
-			log.Printf("error marshaling event to json: %v", err)
+			log.Printf("[WS Manager] Error marshaling event to json: %v", err)
 			continue
 		}
 
@@ -108,7 +108,7 @@ func (m *Manager) routeMessage() {
 			// Если получатель сейчас в сети (есть в мапе)
 			if client, ok := m.clients[targetID]; ok {
 				client.egress <- data
-			}
+			} 
 		}
 		m.RUnlock()
 	}

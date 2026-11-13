@@ -2,20 +2,19 @@ package service_test
 
 import (
 	"chat/internal/domain"
-	"chat/internal/websocket"
 	"context"
 	"time"
 )
 
-
-type mockWSBroadcaster struct {
-	broadcastEventFunc func(ctx context.Context, event websocket.Event)
+type mockEventPublisher struct {
+	publishFunc func(ctx context.Context, event interface{}) error
 }
 
-func (m *mockWSBroadcaster) BroadcastEvent(ctx context.Context, event websocket.Event) {
-	if m.broadcastEventFunc != nil {
-		m.broadcastEventFunc(ctx, event)
+func (m *mockEventPublisher) Publish(ctx context.Context, event interface{}) error {
+	if m.publishFunc(ctx, event) != nil {
+		return m.publishFunc(ctx, event)
 	}
+	return nil
 }
 
 type mockChatRepository struct {
