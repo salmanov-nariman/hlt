@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"log"
 	"notifier/config"
+	"notifier/internal/clients/user"
+	"notifier/internal/fcm"
 	"strings"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -20,13 +21,12 @@ func main() {
 	ctx := context.Background()
 	cfg := config.Load()
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr: cfg.RedisAddr,
-	})
-
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		log.Fatalf("Failed to connect redis: %v", err)
+	fcmClient, err := fcm.NewClient("serviceAccountKey.json")
+	if err != nil {
+		log.Fatalf("[Notifier] Критическая ошибка инициализации FCM: %v", err)
 	}
+
+	userClient := user.NewMockClient()
 
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: strings.Split(cfg.KafkaBrokers, ","),
@@ -40,32 +40,38 @@ func main() {
 	for {
 		msg, err := reader.ReadMessage(ctx)
 		if err != nil {
-			log.Printf("Failed to read message: %v", err)
+			log.Printf("Ошибка чтения из Kafka: %v", err)
 			continue
 		}
 
 		var event ChatEvent
-		if err := json.Unmarshal(msg.Value, &event); err != nil {
-			continue
-		}
-
-		if event.Type == "message.created" {
-			processPushNotificaation(ctx, rdb, event)
+		if json.Unmarshal(msg.Value, &event) == nil {
+			processPushNotificaation(ctx, userClient, fcmClient, event)
 		}
 	}
 }
 
-func processPushNotificaation(ctx context.Context, rdb *redis.Client, event ChatEvent) {
+func processPushNotificaation(
+	ctx context.Context,
+	tokenProvider user.TokenProvider,
+	fcmClient *fcm.Client,
+	event ChatEvent,
+) {
 	for _, targetID := range event.TargetUserIDs {
-		_, err := rdb.Get(ctx, "online"+targetID).Result()
 
-		if err == redis.Nil {
-			// тут будет firebase
-			log.Printf("Notification send to offline user: %s", targetID)
-		} else if err != nil {
-			log.Printf("Failed Redis for %s: %v", targetID, err)
-		} else {
-			log.Printf("User %s is online", targetID)
+		deviceToken, err := tokenProvider.GetDeviceToken(ctx, targetID)
+
+		if err != nil {
+			if err == user.ErrTokenNotFound {
+				log.Printf("[Notifier] У юзера %s нет токена (вышел из приложения)", targetID)
+			} else {
+					log.Printf("[Notifier] Ошибка получения токена для %s: %v", targetID, err)
+			}
+			continue
+		}
+		errPush := fcmClient.SendPush(ctx, deviceToken, "Новое сообщение", "Вам прислали сообщение в HLT")
+		if errPush != nil {
+			log.Printf("[Notifier] Ошибка отправки пуша юзеру %s: %v", targetID, errPush)
 		}
 	}
 }
