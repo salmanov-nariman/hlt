@@ -12,7 +12,7 @@ func Load() *Config {
 	return &Config{
 		RedisAddr:    getEnv("REDIS_ADDR", "localhost:6379"),
 		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
-		KafkaTopic:   getEnv("KAFKA_WS_TOPIC", "chat-ws-events"),
+		KafkaTopic:   getEnv("KAFKA_WS_TOPIC", "push-events"),
 	}
 }
 
