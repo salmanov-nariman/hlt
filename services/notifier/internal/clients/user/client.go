@@ -21,6 +21,7 @@ func NewMockClient() *MockClient {
 		fakeTokens: map[string]string{
 			"user-1": "test_token_123",
 			"user-2": "test_token_456",
+			"b2e58a10-f107-45fb-9f08-483e4942dd96": "fake_token",
 		},
 	}
 }

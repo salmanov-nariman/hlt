@@ -70,7 +70,7 @@ func (m *Manager) addClient(client *Client) {
 	log.Printf("[WS Manager] Client added. UserID: %s, Total connections: %d\n", client.ID, len(m.clients))
 	m.Unlock()
 
-	err := m.redis.Set(context.Background(), "online"+client.ID, "true", 0).Err()
+	err := m.redis.Set(context.Background(), "online:"+client.ID, "true", 0).Err()
 	if err != nil {
 		log.Printf("[WS Manager] Error writting status to redis: %v", err)
 	}
@@ -87,7 +87,7 @@ func (m *Manager) removeClient(client *Client) {
 	}
 	m.Unlock()
 	
-	err := m.redis.Del(context.Background(), "online"+client.ID).Err()
+	err := m.redis.Del(context.Background(), "online:"+client.ID).Err()
 	if err != nil {
 		log.Printf("[WS Manager] Failed to delete status in redis: ")
 	}

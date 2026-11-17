@@ -5,8 +5,9 @@ import (
 	"time"
 
 	"chat/internal/domain"
-)
 
+	"github.com/redis/go-redis/v9"
+)
 
 type ChatRepository interface {
 	GetUsersInChat(ctx context.Context, chatID string) ([]string, error)
@@ -21,17 +22,19 @@ type ChatRepository interface {
 }
 
 type Producer interface {
-	Publish(ctx context.Context, event any) error
+	PublishToTopic(ctx context.Context, topic string, event any) error
 }
 
 type ChatService struct {
 	chatRepository ChatRepository
 	kafkaProducer  Producer
+	rdb            *redis.Client
 }
 
-func NewChatService(producer Producer, repo ChatRepository) *ChatService {
+func NewChatService(producer Producer, repo ChatRepository, rdb *redis.Client) *ChatService {
 	return &ChatService{
 		kafkaProducer:  producer,
 		chatRepository: repo,
+		rdb:            rdb,
 	}
 }

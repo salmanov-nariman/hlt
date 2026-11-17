@@ -6,6 +6,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 )
 
 
@@ -13,8 +16,18 @@ func TestChatService_CreateOrGetDirectChat(t *testing.T) {
 	ctx := context.Background()
 	senderID := "user_1"
 
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("не удалось запустить миниредис: %v", err)
+	}
+	defer mr.Close()
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: mr.Addr(),
+	})
+
 	t.Run("ошибка при попытке создать чат с самим собой", func(t *testing.T) {
-		svc := service.NewChatService(nil, nil)
+		svc := service.NewChatService(nil, nil, rdb)
 
 		_, _, err := svc.CreateOrGetDirectChat(ctx, senderID, senderID)
 
@@ -36,7 +49,7 @@ func TestChatService_CreateOrGetDirectChat(t *testing.T) {
 			},
 		}
 
-		svc := service.NewChatService(nil, mockRepo)
+		svc := service.NewChatService(nil, mockRepo, rdb)
 
 		chat, isNew, err := svc.CreateOrGetDirectChat(ctx, senderID, partnerID)
 
@@ -70,7 +83,7 @@ func TestChatService_CreateOrGetDirectChat(t *testing.T) {
 			},
 		}
 
-		svc := service.NewChatService(nil, mockRepo)
+		svc := service.NewChatService(nil, mockRepo, rdb)
 
 		chat, isNew, err := svc.CreateOrGetDirectChat(ctx, senderID, partnerID)
 

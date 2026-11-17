@@ -19,7 +19,7 @@ func Load() *Config {
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/chat_db?sslmode=disable"),
 		RedisAddr:   getEnv("REDIS_ADDR", "localhost:6379"),
 		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
-		KafkaWSTopic: getEnv("KAFKA_WS_TOPIC", "chat-ws-events"),
+		KafkaWSTopic: getEnv("KAFKA_WS_TOPIC", "websocket-events"),
 	}
 }
 

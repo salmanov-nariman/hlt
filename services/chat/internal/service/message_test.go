@@ -5,14 +5,17 @@ import (
 	"chat/internal/dto"
 	"chat/internal/service"
 	"chat/internal/websocket"
-	"errors"
-	"strings"
-	"time"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 )
 
 
@@ -21,6 +24,9 @@ func TestChatService_ProcessMessage_UserNotMember(t *testing.T) {
 	chatID := "chat_1"
 	senderID := "bad_user_1"
 	clientMsgID := "client_uuid_1"
+
+	rdb, mr := setupTestRedis(t)
+	defer mr.Close()
 
 	mockRepo := &mockChatRepository{
 		getUsersInChatFunc: func(ctx context.Context, requestedRoomID string) ([]string, error) {
@@ -36,7 +42,7 @@ func TestChatService_ProcessMessage_UserNotMember(t *testing.T) {
 		},
 	}
 
-	svc := service.NewChatService(nil, mockRepo)
+	svc := service.NewChatService(nil, mockRepo, rdb)
 
 	msg, err := svc.ProcessMessage(ctx, senderID, chatID, clientMsgID, "Пытаюсь что-то написать")
 
@@ -61,6 +67,9 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 	clientMsgID := "client_uuid_1"
 	content := "Привет всем!"
 
+	rdb, mr := setupTestRedis(t)
+	defer mr.Close()
+
 	mockRepo := &mockChatRepository{
 		getUsersInChatFunc: func(ctx context.Context, requestedRoomID string) ([]string, error) {
 			return []string{"good_user_1", "good_user_2"}, nil
@@ -78,16 +87,20 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
         },
 	}
 
+	mr.Set("online:good_user_2", "1")
+
 	eventChan := make(chan interface{}, 2)
 
 	mockPublisher := &mockEventPublisher{
-		publishFunc: func(ctx context.Context, event interface{}) error {
-			eventChan <- event
+		publishToTopicFunc: func(ctx context.Context, topic string, event interface{}) error {
+			if topic == "websocket-events" {
+				eventChan <- event
+			}
 			return nil
 		},
 	}
 
-	svc := service.NewChatService(mockPublisher, mockRepo)
+	svc := service.NewChatService(mockPublisher, mockRepo, rdb)
 
 	msg, err := svc.ProcessMessage(ctx, senderID, chatID, clientMsgID, content)
 
@@ -99,7 +112,7 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 	}
 
 	var capturedEvents []interface{}
-	for i:=0; i<2; i++ {
+	for range 2 {
 		select {
 		case event := <-eventChan:
 			capturedEvents = append(capturedEvents, event)
@@ -108,7 +121,7 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 		}
 	}
 
-	expectedUsers := []string{"good_user_1", "good_user_2"}
+	expectedUsers := []string{"good_user_2"}
 
 	event1 := capturedEvents[0].(websocket.Event) // message.created
     if event1.Type != websocket.EventTypeMessageCreated || event1.ChatID != chatID {
@@ -147,6 +160,9 @@ func TestChatService_SyncMessages_Forbidden(t *testing.T) {
 	chatID := "chat_1"
 	userID := "hacker_1"
 
+	rdb, mr := setupTestRedis(t)
+	defer mr.Close()
+
 	mockRepo := &mockChatRepository{
 		getUsersInChatFunc: func(ctx context.Context, requestedChatID string) ([]string, error) {
 			return []string{"user_1", "user_2"}, nil
@@ -157,7 +173,7 @@ func TestChatService_SyncMessages_Forbidden(t *testing.T) {
 		},
 	}
 
-	svc := service.NewChatService(nil, mockRepo)
+	svc := service.NewChatService(nil, mockRepo, rdb)
 
 	messages, err := svc.SyncMessages(ctx, userID, chatID, 0, 50)
 
@@ -179,13 +195,16 @@ func TestChatService_SyncMessages_Forbidden(t *testing.T) {
 func TestChatService_ProcessMessage_DBError(t *testing.T) {
 	ctx := context.Background()
 
+	rdb, mr := setupTestRedis(t)
+	defer mr.Close()
+
 	mockRepo := &mockChatRepository{
 		getUsersInChatFunc: func(ctx context.Context, chatID string) ([]string, error) {
 			return nil, errors.New("db connections lost")
 		},
 	}
 
-	svc := service.NewChatService(nil, mockRepo)
+	svc := service.NewChatService(nil, mockRepo, rdb)
 
 	msg, err := svc.ProcessMessage(ctx, "user_1", "chat_1", "client_uuid_1", "something test")
 
@@ -208,6 +227,9 @@ func TestChatService_UpdateReadStatus_Success(t *testing.T) {
     userID := "good_user_1"
     sequence := int64(15)
 
+	rdb, mr := setupTestRedis(t)
+	defer mr.Close()
+
     mockRepo := &mockChatRepository{
         getUsersInChatFunc: func(ctx context.Context, requestedRoomID string) ([]string, error) {
             return []string{"good_user_1", "good_user_2"}, nil
@@ -223,13 +245,13 @@ func TestChatService_UpdateReadStatus_Success(t *testing.T) {
 
 	eventChan := make(chan interface{}, 1)
 	mockPublisher := &mockEventPublisher{
-		publishFunc: func(ctx context.Context, event interface{}) error {
+		publishToTopicFunc: func(ctx context.Context, topic string, event interface{}) error {
 			eventChan <- event
 			return nil
 		},
 	}
 
-    svc := service.NewChatService(mockPublisher, mockRepo)
+    svc := service.NewChatService(mockPublisher, mockRepo, rdb)
 
     err := svc.UpdateReadStatus(ctx, chatID, userID, sequence)
 
@@ -250,4 +272,19 @@ func TestChatService_UpdateReadStatus_Success(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		t.Error("Таймаут: статус прочтения не был отправлен в брокер")
 	}
+}
+
+func setupTestRedis(t *testing.T) (*redis.Client, *miniredis.Miniredis) {
+	t.Helper()
+
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("не удалось запустить миниредис: %v", err)
+	}
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: mr.Addr(),
+	})
+
+	return rdb, mr
 }

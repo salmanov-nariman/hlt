@@ -80,7 +80,7 @@ func (s *ChatService) UpdateReadStatus(ctx context.Context, chatID, userID strin
 
 	payloadBytes, err := json.Marshal(payload)
 
-	err = s.kafkaProducer.Publish(ctx, websocket.Event{
+	err = s.kafkaProducer.PublishToTopic(ctx, "websocket-events", websocket.Event{
 		Type: websocket.EventTypeChatRead,
 		ChatID: chatID,
 		TargetUserIDs: membersIDs,
