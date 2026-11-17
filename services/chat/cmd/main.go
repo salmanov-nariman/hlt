@@ -59,7 +59,7 @@ func main() {
 	kafkaBrokers := strings.Split(cfg.KafkaBrokers, ",")
 	wsTopic := cfg.KafkaWSTopic
 
-	kafkaProducer := broker.NewProducer(kafkaBrokers, wsTopic)
+	kafkaProducer := broker.NewProducer(kafkaBrokers)
 	defer kafkaProducer.Close()
 
 	kafkaConsumer := broker.NewConsumer(kafkaBrokers, wsTopic, wsManager)
@@ -67,7 +67,7 @@ func main() {
 
 	go kafkaConsumer.Start(ctx)
 
-	chatService := service.NewChatService(kafkaProducer, chatRepository)
+	chatService := service.NewChatService(kafkaProducer, chatRepository, rdb)
 	chatHandler := handler.NewChatHandler(chatService, kafkaProducer)
 
 	r := chi.NewRouter()

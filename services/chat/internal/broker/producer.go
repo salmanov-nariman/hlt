@@ -13,16 +13,15 @@ type Producer struct {
 	writer *kafka.Writer
 }
 
-func NewProducer(brokers []string, topic string) *Producer {
+func NewProducer(brokers []string) *Producer {
 	w := &kafka.Writer{
 		Addr: kafka.TCP(brokers...),
-		Topic: topic,
 		Balancer: &kafka.LeastBytes{},
 	}
 	return &Producer{writer: w}
 }
 
-func (p *Producer) Publish(ctx context.Context, event any) error {
+func (p *Producer) PublishToTopic(ctx context.Context, topic string, event any) error {
 	payload, err := json.Marshal(event)
 	if err != nil {
 		log.Printf("[Kafka Producer] Error marshaling event: %v", err)
@@ -31,6 +30,7 @@ func (p *Producer) Publish(ctx context.Context, event any) error {
 
 	err = p.writer.WriteMessages(ctx, kafka.Message{
 		Value: payload,
+		Topic: topic,
 	})
 	if err != nil {
 		log.Printf("[Kafka Producer] Error sending event to broker: %v", err)
