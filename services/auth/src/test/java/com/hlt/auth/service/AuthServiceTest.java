@@ -1,14 +1,22 @@
 package com.hlt.auth.service;
 
+import com.hlt.auth.grpc.client.EmailClient;
 import com.hlt.auth.jwt.JwtService;
+import com.hlt.auth.model.data.EmailVerificationResult;
+import com.hlt.auth.model.data.RegistrationData;
+import com.hlt.auth.model.dto.request.EmailResendRequest;
+import com.hlt.auth.model.dto.request.EmailVerifyRequest;
 import com.hlt.auth.model.dto.request.LoginRequest;
 import com.hlt.auth.model.dto.request.RefreshTokenRequest;
 import com.hlt.auth.model.dto.request.RegisterRequest;
 import com.hlt.auth.model.dto.response.RegisterResponse;
 import com.hlt.auth.model.dto.response.TokenResponse;
+import com.hlt.auth.model.entity.AccountStatus;
 import com.hlt.auth.model.entity.Credentials;
+import com.hlt.auth.model.entity.EmailVerification;
 import com.hlt.auth.model.entity.RefreshToken;
 import com.hlt.auth.repository.CredentialsRepository;
+import com.hlt.auth.repository.EmailVerificationRepository;
 import com.hlt.auth.repository.RefreshTokenRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,8 +36,10 @@ import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -52,9 +62,22 @@ public class AuthServiceTest {
     @Mock
     private JwtService jwtService;
 
-    @DisplayName("Успешная регистрация пользователя")
-    @Test
-    void shouldRegisterAndReturnUser() {
+    @Mock
+    private RegistrationPersistenceService registrationPersistenceService;
+
+    @Mock
+    private VerificationCodeService verificationCodeService;
+
+    @Mock
+    private EmailVerificationRepository emailVerificationRepository;
+
+    @Mock
+    private EmailClient emailClient;
+
+    @DisplayName("Регистрация возвращает пользователя независимо от результата отправки письма")
+    @ParameterizedTest(name = "Письмо отправлено: {0}")
+    @ValueSource(booleans = {true, false})
+    void shouldRegisterAndReturnUser(boolean sent) {
         RegisterRequest request = new RegisterRequest(
                 "test",
                 "test@gmail.com",
@@ -68,6 +91,7 @@ public class AuthServiceTest {
                 request.username(),
                 request.email(),
                 passwordHash,
+                AccountStatus.PENDING_VERIFICATION,
                 Instant.now()
         );
 
@@ -80,8 +104,26 @@ public class AuthServiceTest {
         Mockito.when(passwordEncoder.encode(request.password()))
                 .thenReturn(passwordHash);
 
-        Mockito.when(credentialsRepository.save(Mockito.any(Credentials.class)))
-                .thenReturn(Mono.just(savedCredentials));
+        String code = "012345";
+        String codeHash = "code-hash";
+        EmailVerification savedVerification = new EmailVerification(
+                UUID.randomUUID(), savedCredentials.getId(), codeHash,
+                Instant.now().plusSeconds(300), 0, null
+        );
+
+        Mockito.when(verificationCodeService.generateCode()).thenReturn(code);
+        Mockito.when(verificationCodeService.hashCode(code)).thenReturn(codeHash);
+        Mockito.when(verificationCodeService.getCodeExpiration()).thenReturn(Duration.ofMinutes(5));
+        Mockito.when(registrationPersistenceService.createRegistrationData(
+                Mockito.any(Credentials.class), Mockito.any(EmailVerification.class)
+        )).thenReturn(Mono.just(new RegistrationData(savedCredentials, savedVerification)));
+        Mockito.when(emailClient.sendVerificationEmail(request.email(), code))
+                .thenReturn(sent ? Mono.empty() : Mono.error(new IllegalStateException("Email service unavailable")));
+
+        if (sent) {
+            Mockito.when(registrationPersistenceService.markSentEmail(savedVerification))
+                    .thenReturn(Mono.just(savedVerification));
+        }
 
         StepVerifier.create(authService.register(request))
                 .expectNext(new RegisterResponse(
@@ -93,7 +135,10 @@ public class AuthServiceTest {
         ArgumentCaptor<Credentials> captor =
                 ArgumentCaptor.forClass(Credentials.class);
 
-        Mockito.verify(credentialsRepository).save(captor.capture());
+        ArgumentCaptor<EmailVerification> verificationCaptor =
+                ArgumentCaptor.forClass(EmailVerification.class);
+        Mockito.verify(registrationPersistenceService)
+                .createRegistrationData(captor.capture(), verificationCaptor.capture());
 
         Credentials credentialsToSave = captor.getValue();
 
@@ -102,10 +147,14 @@ public class AuthServiceTest {
                 () -> assertEquals(request.username(), credentialsToSave.getUsername()),
                 () -> assertEquals(request.email(), credentialsToSave.getEmail()),
                 () -> assertEquals(passwordHash, credentialsToSave.getPassword()),
-                () -> assertNotNull(credentialsToSave.getCreatedAt())
+                () -> assertEquals(AccountStatus.PENDING_VERIFICATION, credentialsToSave.getStatus()),
+                () -> assertNotNull(credentialsToSave.getCreatedAt()),
+                () -> assertEquals(codeHash, verificationCaptor.getValue().getCodeHash())
         );
 
-        Mockito.verify(passwordEncoder).encode(request.password());
+        Mockito.verify(emailClient).sendVerificationEmail(request.email(), code);
+        Mockito.verify(registrationPersistenceService, Mockito.times(sent ? 1 : 0))
+                .markSentEmail(savedVerification);
     }
 
     @DisplayName("Отказ в регистрации при занятых данных")
@@ -138,8 +187,147 @@ public class AuthServiceTest {
                                 && expectedMessage.equals(error.getMessage()))
                 .verify();
 
-        Mockito.verify(credentialsRepository, Mockito.never())
-                .save(Mockito.any(Credentials.class));
+        Mockito.verifyNoInteractions(registrationPersistenceService, emailClient);
+    }
+
+    @DisplayName("Верный код активирует аккаунт и удаляет запись подтверждения")
+    @Test
+    void shouldVerifyPendingAccount() {
+        Instant now = Instant.now();
+        Credentials account = pendingAccount(now.minusSeconds(60));
+        EmailVerifyRequest request = new EmailVerifyRequest(account.getEmail(), "012345");
+        EmailVerification verification = new EmailVerification(
+                UUID.randomUUID(), account.getId(), "code-hash", now.plusSeconds(240), 0, null
+        );
+
+        Mockito.when(credentialsRepository.findByEmailForUpdate(request.email()))
+                .thenReturn(Mono.just(account));
+        Mockito.when(emailVerificationRepository.findByAccountId(account.getId()))
+                .thenReturn(Mono.just(verification));
+        Mockito.when(verificationCodeService.getMaxAttempts()).thenReturn(5);
+        Mockito.when(verificationCodeService.matches(request.verificationCode(), verification.getCodeHash()))
+                .thenReturn(true);
+        Mockito.when(credentialsRepository.save(account)).thenReturn(Mono.just(account));
+        Mockito.when(emailVerificationRepository.deleteByAccountId(account.getId())).thenReturn(Mono.empty());
+
+        StepVerifier.create(authService.emailVerify(request))
+                .expectNext(EmailVerificationResult.VERIFIED)
+                .verifyComplete();
+
+        assertEquals(AccountStatus.ACTIVE, account.getStatus());
+        Mockito.verify(credentialsRepository).save(account);
+        Mockito.verify(emailVerificationRepository).deleteByAccountId(account.getId());
+    }
+
+    @DisplayName("Истёкший срок регистрации блокирует подтверждение")
+    @Test
+    void shouldRejectVerificationWhenRegistrationExpired() {
+        Credentials account = pendingAccount(Instant.now().minusSeconds(16 * 60));
+        EmailVerifyRequest request = new EmailVerifyRequest(account.getEmail(), "012345");
+
+        Mockito.when(credentialsRepository.findByEmailForUpdate(request.email()))
+                .thenReturn(Mono.just(account));
+        Mockito.when(registrationPersistenceService.isRegistrationExpired(
+                Mockito.eq(account.getCreatedAt()), Mockito.any(Instant.class)
+        )).thenReturn(true);
+
+        StepVerifier.create(authService.emailVerify(request))
+                .expectNext(EmailVerificationResult.EXPIRED)
+                .verifyComplete();
+
+        assertEquals(AccountStatus.PENDING_VERIFICATION, account.getStatus());
+        Mockito.verify(credentialsRepository, Mockito.never()).save(account);
+        Mockito.verifyNoInteractions(emailVerificationRepository, verificationCodeService);
+    }
+
+    @DisplayName("Просроченный код отклоняется, даже если регистрация ещё действует")
+    @Test
+    void shouldRejectExpiredVerificationCode() {
+        Instant now = Instant.now();
+        Credentials account = pendingAccount(now.minusSeconds(6 * 60));
+        EmailVerifyRequest request = new EmailVerifyRequest(account.getEmail(), "012345");
+        EmailVerification verification = new EmailVerification(
+                UUID.randomUUID(), account.getId(), "code-hash", now.minusSeconds(60), 0, null
+        );
+
+        Mockito.when(credentialsRepository.findByEmailForUpdate(request.email()))
+                .thenReturn(Mono.just(account));
+        Mockito.when(emailVerificationRepository.findByAccountId(account.getId()))
+                .thenReturn(Mono.just(verification));
+
+        StepVerifier.create(authService.emailVerify(request))
+                .expectNext(EmailVerificationResult.EXPIRED)
+                .verifyComplete();
+
+        assertEquals(AccountStatus.PENDING_VERIFICATION, account.getStatus());
+        Mockito.verify(credentialsRepository, Mockito.never()).save(account);
+        Mockito.verifyNoInteractions(verificationCodeService);
+    }
+
+    @DisplayName("Повторная отправка сохраняет отметку только после успешной отправки")
+    @ParameterizedTest(name = "Письмо отправлено: {0}")
+    @ValueSource(booleans = {true, false})
+    void shouldHandleVerificationEmailResend(boolean sent) {
+        EmailResendRequest request = new EmailResendRequest("test@gmail.com");
+        String code = "012345";
+        String codeHash = "code-hash";
+        EmailVerification verification = new EmailVerification(
+                UUID.randomUUID(), UUID.randomUUID(), codeHash, Instant.now().plusSeconds(300), 0, null
+        );
+
+        Mockito.when(verificationCodeService.generateCode()).thenReturn(code);
+        Mockito.when(verificationCodeService.hashCode(code)).thenReturn(codeHash);
+        Mockito.when(registrationPersistenceService.prepareEmailResend(request.email(), codeHash))
+                .thenReturn(Mono.just(Optional.of(verification)));
+        Mockito.when(emailClient.sendVerificationEmail(request.email(), code))
+                .thenReturn(sent ? Mono.empty() : Mono.error(new IllegalStateException("Email service unavailable")));
+
+        if (sent) {
+            Mockito.when(registrationPersistenceService.markSentEmail(verification))
+                    .thenReturn(Mono.just(verification));
+            StepVerifier.create(authService.emailResend(request)).verifyComplete();
+
+            var order = Mockito.inOrder(registrationPersistenceService, emailClient);
+            order.verify(registrationPersistenceService).prepareEmailResend(request.email(), codeHash);
+            order.verify(emailClient).sendVerificationEmail(request.email(), code);
+            order.verify(registrationPersistenceService).markSentEmail(verification);
+        } else {
+            StepVerifier.create(authService.emailResend(request))
+                    .expectErrorMatches(error -> error instanceof ResponseStatusException ex
+                            && HttpStatus.SERVICE_UNAVAILABLE.equals(ex.getStatusCode()))
+                    .verify();
+            Mockito.verify(registrationPersistenceService, Mockito.never()).markSentEmail(verification);
+        }
+    }
+
+    @DisplayName("Повторная отправка после истечения регистрации возвращает 410 без письма")
+    @Test
+    void shouldRejectResendWhenRegistrationExpired() {
+        EmailResendRequest request = new EmailResendRequest("test@gmail.com");
+        String code = "012345";
+        String codeHash = "code-hash";
+
+        Mockito.when(verificationCodeService.generateCode()).thenReturn(code);
+        Mockito.when(verificationCodeService.hashCode(code)).thenReturn(codeHash);
+        Mockito.when(registrationPersistenceService.prepareEmailResend(request.email(), codeHash))
+                .thenReturn(Mono.just(Optional.empty()));
+
+        StepVerifier.create(authService.emailResend(request))
+                .expectErrorMatches(error -> error instanceof ResponseStatusException ex
+                        && HttpStatus.GONE.equals(ex.getStatusCode())
+                        && "Срок подтверждения истёк. Зарегистрируйтесь заново".equals(ex.getReason()))
+                .verify();
+
+        Mockito.verifyNoInteractions(emailClient);
+        Mockito.verify(registrationPersistenceService, Mockito.never())
+                .markSentEmail(Mockito.any());
+    }
+
+    private Credentials pendingAccount(Instant createdAt) {
+        return new Credentials(
+                UUID.randomUUID(), "test", "test@gmail.com", "password-hash",
+                AccountStatus.PENDING_VERIFICATION, createdAt
+        );
     }
 
     @DisplayName("Успешный логин пользователя")
@@ -157,6 +345,7 @@ public class AuthServiceTest {
                 "Test",
                 request.email(),
                 passwordHash,
+                AccountStatus.ACTIVE,
                 Instant.now()
         );
 
@@ -249,6 +438,7 @@ public class AuthServiceTest {
                 "Test",
                 request.email(),
                 passwordHash,
+                AccountStatus.ACTIVE,
                 Instant.now()
         );
 

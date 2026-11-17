@@ -13,9 +13,22 @@ spring:
     user: ${POSTGRES_USER}
     password: ${POSTGRES_PASSWORD}
 
+  grpc:
+    client:
+      channel:
+        email:
+          target: ${EMAIL_GRPC_TARGET}
+          ssl:
+            enabled: false
+
 jwt:
   secret: ${JWT_SECRET}
   access-expiration: ${ACCESS_EXPIRATION}
+
+verification:
+  code-expiration: ${VERIFICATION_CODE_EXPIRATION}
+  registration-expiration: ${VERIFICATION_REGISTRATION_EXPIRATION}
+  max-attempts: ${VERIFICATION_MAX_ATTEMPTS}
 
 management:
   endpoints:

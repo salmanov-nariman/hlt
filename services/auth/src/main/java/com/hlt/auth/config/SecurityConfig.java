@@ -25,6 +25,8 @@ public class SecurityConfig {
                                 "/api/auth/login",
                                 "/api/auth/refresh",
                                 "/api/auth/validate",
+                                "/api/auth/emailVerify",
+                                "/api/auth/emailResend",
                                 "/actuator/**"
                         ).permitAll()
                         .anyExchange().authenticated()
