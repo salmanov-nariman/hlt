@@ -11,6 +11,8 @@ import (
 	"chat/internal/domain"
 	"chat/internal/dto"
 	"chat/internal/websocket"
+
+	"github.com/redis/go-redis/v9"
 )
 
 func (s *ChatService) ProcessMessage(ctx context.Context, senderID, chatID, clientMessageID, content string) (*domain.Message, error) {
@@ -38,42 +40,78 @@ func (s *ChatService) ProcessMessage(ctx context.Context, senderID, chatID, clie
 		return nil, fmt.Errorf("failed to save message: %w", err)
 	}
 
-	go func(m *domain.Message, mIDs []string) {
+	go func(m *domain.Message, mIDs []string, sID string) {
 		bgCtx := context.WithoutCancel(ctx)
 
-		msgDTO := dto.NewMessageResponse(m)
-		payloadBytes, _ := json.Marshal(msgDTO)
+		var onlineUserIDs []string
+        var offlineUserIDs []string
 
-		err := s.kafkaProducer.Publish(bgCtx, websocket.Event{
-			Type:          websocket.EventTypeMessageCreated,
-			ChatID:        chatID,
-			Payload:       payloadBytes,
-			TargetUserIDs: memberIDs,
-		})
-		if err != nil {
-			log.Printf("[ChatSvc] Error calling Publish: %v", err)
+		for _, memberID := range mIDs {
+			if memberID == senderID {
+				continue
+			}
+
+			_, err := s.rdb.Get(bgCtx, "online:"+memberID).Result()
+			if err == redis.Nil {
+                offlineUserIDs = append(offlineUserIDs, memberID)
+            } else if err == nil {
+                onlineUserIDs = append(onlineUserIDs, memberID)
+            } else {
+                log.Printf("[ChatSvc] Redis error for user %s: %v", memberID, err)
+                offlineUserIDs = append(offlineUserIDs, memberID)
+            }
 		}
 
-		// обновляем статус события, чтобы можно было обновить список чатов
-		chatUpdatedPayload := dto.ChatUpdatedEvent{
-			ChatID:      m.ChatID,
-			LastMessage: *msgDTO,
-		}
+		s.publishEvents(bgCtx, m, onlineUserIDs, offlineUserIDs)
 
-		updatedPayloadBytes, _ := json.Marshal(chatUpdatedPayload)
-
-		err = s.kafkaProducer.Publish(bgCtx, websocket.Event{
-			Type:          websocket.EventTypeChatUpdated,
-			ChatID:        chatID,
-			Payload:       updatedPayloadBytes,
-			TargetUserIDs: memberIDs,
-		})
-		if err != nil {
-			log.Printf("[ChatSvc] Error calling Publish: %v", err)
-		}
-	}(msg, memberIDs)
+	}(msg, memberIDs, senderID)
 
 	return msg, nil
+}
+
+func (s *ChatService) publishEvents(ctx context.Context, m *domain.Message, onlineIDs, offlineIDs []string) {
+	msgDTO := dto.NewMessageResponse(m)
+	payloadBytes, _ := json.Marshal(msgDTO)
+
+	if len(onlineIDs) > 0 {
+		err := s.kafkaProducer.PublishToTopic(ctx, "websocket-events", websocket.Event{
+			Type: websocket.EventTypeMessageCreated,
+			ChatID: m.ChatID,
+			Payload: payloadBytes,
+			TargetUserIDs: onlineIDs,
+		})
+		if err != nil {
+			log.Printf("[ChatService] Error publishing MessageCreated: %v", err)
+		}
+
+		chatUpdatedPayload := dto.ChatUpdatedEvent{
+			ChatID: m.ChatID,
+			LastMessage: *msgDTO,
+		}
+		updatedPayloadBytes, _ := json.Marshal(chatUpdatedPayload)
+		
+		err = s.kafkaProducer.PublishToTopic(ctx, "websocket-events", websocket.Event{
+			Type: websocket.EventTypeChatUpdated,
+			ChatID: m.ChatID,
+			Payload: updatedPayloadBytes,
+			TargetUserIDs: onlineIDs,
+		})
+		if err != nil {
+			log.Printf("[ChatService] Error publishing ChatUpdated: %v", err)
+		}
+	}
+
+	if len(offlineIDs) > 0 {
+		err := s.kafkaProducer.PublishToTopic(ctx, "push-events", websocket.Event{
+			Type: "push-notification",
+			ChatID: m.ChatID,
+			Payload: payloadBytes,
+			TargetUserIDs: offlineIDs,
+		})
+		if err != nil {
+			log.Printf("[ChatService] Error publishing push notification: %v", err)
+		}
+	}
 }
 
 func (s *ChatService) SyncMessages(ctx context.Context, senderID, chatID string, afterSequence int64, limit int) ([]domain.Message, error) {

@@ -7,12 +7,12 @@ import (
 )
 
 type mockEventPublisher struct {
-	publishFunc func(ctx context.Context, event interface{}) error
+	publishToTopicFunc func(ctx context.Context, topic string, event interface{}) error
 }
 
-func (m *mockEventPublisher) Publish(ctx context.Context, event interface{}) error {
-	if m.publishFunc(ctx, event) != nil {
-		return m.publishFunc(ctx, event)
+func (m *mockEventPublisher) PublishToTopic(ctx context.Context, topic string, event interface{}) error {
+	if m.publishToTopicFunc(ctx, topic, event) != nil {
+		return m.publishToTopicFunc(ctx, topic, event)
 	}
 	return nil
 }
