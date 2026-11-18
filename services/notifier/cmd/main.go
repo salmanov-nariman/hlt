@@ -54,7 +54,7 @@ func main() {
 func processPushNotificaation(
 	ctx context.Context,
 	tokenProvider user.TokenProvider,
-	fcmClient *fcm.Client,
+	fcmClient fcm.PushSender,
 	event ChatEvent,
 ) {
 	for _, targetID := range event.TargetUserIDs {
