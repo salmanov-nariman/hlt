@@ -15,6 +15,10 @@ type Client struct {
 	fcmClient *messaging.Client
 }
 
+type PushSender interface {
+	SendPush(ctx context.Context, deviceToken, title, body string) error
+}
+
 func NewClient(credentialsPath string) (*Client, error) {
 	ctx := context.Background()
 
