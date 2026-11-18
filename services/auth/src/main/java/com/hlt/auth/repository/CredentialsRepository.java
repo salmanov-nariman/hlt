@@ -2,6 +2,7 @@ package com.hlt.auth.repository;
 
 
 import com.hlt.auth.model.entity.Credentials;
+import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Mono;
@@ -13,4 +14,7 @@ public interface CredentialsRepository extends ReactiveCrudRepository<Credential
     Mono<Credentials> findByEmail(String email);
     Mono<Boolean> existsByEmail(String email);
     Mono<Boolean> existsByUsername(String username);
+
+    @Query("SELECT * FROM credentials WHERE email = :email FOR UPDATE")
+    Mono<Credentials> findByEmailForUpdate(String email);
 }

@@ -1,9 +1,7 @@
 package com.hlt.auth.controller;
 
 
-import com.hlt.auth.model.dto.request.LoginRequest;
-import com.hlt.auth.model.dto.request.RefreshTokenRequest;
-import com.hlt.auth.model.dto.request.RegisterRequest;
+import com.hlt.auth.model.dto.request.*;
 import com.hlt.auth.model.dto.response.RegisterResponse;
 import com.hlt.auth.model.dto.response.TokenResponse;
 import com.hlt.auth.service.AuthService;
@@ -46,6 +44,24 @@ public class AuthController {
                 .map(response -> ResponseEntity.status(HttpStatus.OK)
                         .header("X-User-Id", response.toString())
                         .build());
+    }
+
+    @PostMapping("/emailVerify")
+    public Mono<ResponseEntity<Void>> emailVerify(@RequestBody EmailVerifyRequest request) {
+        return authService.emailVerify(request)
+                .map(result -> switch (result) {
+                    case VERIFIED, ALREADY_VERIFIED -> ResponseEntity.noContent().build();
+                    case INVALID_CODE, NOT_FOUND -> ResponseEntity.badRequest().build();
+                    case EXPIRED -> ResponseEntity.status(HttpStatus.GONE).build();
+                    case ATTEMPTS_EXHAUSTED ->
+                            ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).build();
+                });
+    }
+
+    @PostMapping("/emailResend")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public Mono<Void> emailResend(@RequestBody EmailResendRequest request) {
+        return authService.emailResend(request);
     }
 
 }

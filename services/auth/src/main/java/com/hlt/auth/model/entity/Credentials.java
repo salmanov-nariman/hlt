@@ -21,17 +21,20 @@ public class Credentials {
     @Column("password_hash")
     private String password;
 
+    private AccountStatus status;
+
     @Column("created_at")
     private Instant createdAt;
 
     public Credentials() {
     }
 
-    public Credentials(UUID id, String username, String email, String password, Instant createdAt) {
+    public Credentials(UUID id, String username, String email, String password, AccountStatus status, Instant createdAt) {
         this.id = id;
         this.username = username;
         this.email = email;
         this.password = password;
+        this.status = status;
         this.createdAt = createdAt;
     }
 
@@ -63,9 +66,13 @@ public class Credentials {
         return password;
     }
 
+    public AccountStatus getStatus() { return status; }
+
     public void setPassword(String password) {
         this.password = password;
     }
+
+    public void setStatus(AccountStatus status) { this.status = status; }
 
     public Instant getCreatedAt() {
         return createdAt;
