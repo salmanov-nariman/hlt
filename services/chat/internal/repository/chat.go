@@ -91,14 +91,14 @@ func (r *ChatRepository) GetChatByID(ctx context.Context, chatID, userID string)
 			cm.last_read_sequence AS user_last_read_sequence,
 			m.id AS msg_id,
 			m.sender_id AS msg_sender_id,
-			m.content AS msg_content,
+			m.cipher_text AS msg_cipher_text,
 			m.created_at AS msg_created_at,
 			m.client_message_id AS msg_client_message_id,
 			m.sequence AS msg_sequence
 		FROM chats c
 		JOIN chat_members cm ON c.id = cm.chat_id
 		LEFT JOIN LATERAL (
-			SELECT id, sender_id, content, created_at, client_message_id, sequence
+			SELECT id, sender_id, cipher_text, created_at, client_message_id, sequence
 			FROM messages
 			WHERE chat_id = c.id
 			ORDER BY sequence DESC
@@ -109,7 +109,8 @@ func (r *ChatRepository) GetChatByID(ctx context.Context, chatID, userID string)
 
 	var s domain.ChatSummary
 	var chatLastSeq, userLastReadSeq int64
-	var msgID, msgSenderID, msgClientMessageID, msgContent *string
+	var msgID, msgSenderID, msgClientMessageID *string
+	var msgCipherText []byte
 	var msgCreatedAt *time.Time
 	var msgSequence *int64
 
@@ -121,7 +122,7 @@ func (r *ChatRepository) GetChatByID(ctx context.Context, chatID, userID string)
 		&userLastReadSeq,
 		&msgID,
 		&msgSenderID,
-		&msgContent,
+		&msgCipherText,
 		&msgCreatedAt,
 		&msgClientMessageID,
 		&msgSequence,
@@ -146,7 +147,7 @@ func (r *ChatRepository) GetChatByID(ctx context.Context, chatID, userID string)
 			ChatID:          s.ID,
 			SenderID:        *msgSenderID,
 			ClientMessageID: *msgClientMessageID,
-			Content:         *msgContent,
+			CipherText:      msgCipherText,
 			CreatedAt:       *msgCreatedAt,
 			Sequence:        *msgSequence,
 		}
@@ -181,7 +182,7 @@ func (r *ChatRepository) GetUserChats(ctx context.Context, userID string, limit 
 			c.updated_at AS chat_updated_at,
 			m.id AS msg_id,
 			m.sender_id AS msg_sender_id,
-			m.content AS msg_content,
+			m.cipher_text AS msg_cipher_text,
 			m.created_at AS msg_created_at,
 			m.client_message_id AS msg_client_message_id,
 			m.sequence AS msg_sequence,
@@ -189,7 +190,7 @@ func (r *ChatRepository) GetUserChats(ctx context.Context, userID string, limit 
 		FROM chats c
 		JOIN chat_members cm ON c.id = cm.chat_id
 		LEFT JOIN LATERAL (
-			SELECT id, sender_id, content, created_at, client_message_id, sequence
+			SELECT id, sender_id, cipher_text, created_at, client_message_id, sequence
 			FROM messages
 			WHERE chat_id = c.id
 			ORDER BY created_at DESC
@@ -211,7 +212,8 @@ func (r *ChatRepository) GetUserChats(ctx context.Context, userID string, limit 
 	for rows.Next() {
 		var s domain.ChatSummary
 		var chatUpdatedAt time.Time
-		var msgID, msgSenderID, msgContent, msgClientMessageID *string
+		var msgID, msgSenderID, msgClientMessageID *string
+		var msgCipherText []byte
 		var msgSequence *int64
 		var msgCreatedAt *time.Time
 		var userLastSequence int64
@@ -221,7 +223,7 @@ func (r *ChatRepository) GetUserChats(ctx context.Context, userID string, limit 
 			&chatUpdatedAt,
 			&msgID, // Если в БД NULL, сюда запишется nil
 			&msgSenderID,
-			&msgContent,
+			&msgCipherText,
 			&msgCreatedAt,
 			&msgClientMessageID,
 			&msgSequence,
@@ -237,7 +239,7 @@ func (r *ChatRepository) GetUserChats(ctx context.Context, userID string, limit 
 				ID:              *msgID,
 				ChatID:          s.ID,
 				SenderID:        *msgSenderID,
-				Content:         *msgContent,
+				CipherText:      msgCipherText,
 				CreatedAt:       *msgCreatedAt,
 				Sequence:        *msgSequence,
 				ClientMessageID: *msgClientMessageID,

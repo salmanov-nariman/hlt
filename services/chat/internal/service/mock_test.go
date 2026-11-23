@@ -27,6 +27,8 @@ type mockChatRepository struct {
 	getDirectChatFunc func(ctx context.Context, uid1, uid2 string) (*string, error)
 	getChatByIDFunc func(ctx context.Context, chatID, userID string) (domain.ChatSummary, error)
 	getChatMessagesFunc func(ctx context.Context, chatID string, cursor *int64, limit int) ([]domain.Message, error)
+	saveKeyFunc func(ctx context.Context, userID string, publicKey []byte) error
+	getLatestKeyFunc func(ctx context.Context, userID string) (domain.UserPublicKey, error)
 }
 
 func (m *mockChatRepository) GetUsersInChat(ctx context.Context, chatID string) ([]string, error) {
@@ -63,4 +65,12 @@ func (m *mockChatRepository) GetChatByID(ctx context.Context, chatID, userID str
 
 func (m *mockChatRepository) GetChatMessages(ctx context.Context, chatID string, cursor *int64, limit int) ([]domain.Message, error) {
 	return m.getChatMessagesFunc(ctx, chatID, cursor, limit)
+}
+
+func (m *mockChatRepository) SaveKey(ctx context.Context, userID string, publicKey []byte) error {
+	return m.saveKeyFunc(ctx, userID, publicKey)
+}
+
+func (m *mockChatRepository) GetLatestKey(ctx context.Context, userID string) (domain.UserPublicKey, error) {
+	return m.getLatestKeyFunc(ctx, userID)
 }
