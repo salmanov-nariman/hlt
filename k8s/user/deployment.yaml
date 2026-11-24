@@ -20,7 +20,7 @@ spec:
           imagePullPolicy: Always
           ports:
             - name: http
-              containerPort: 8081
+              containerPort: 8080
             - name: grpc
               containerPort: 9091
           envFrom:
