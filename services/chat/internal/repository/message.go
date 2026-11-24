@@ -1,16 +1,15 @@
 package repository
 
 import (
-	"bytes"
 	"chat/internal/domain"
 	"context"
 	"fmt"
 	"time"
 )
 
+
 func (r *ChatRepository) SaveMessageWithReadUpdate(ctx context.Context, msg *domain.Message) error {
-	var existingID string
-	var existingCipherText []byte
+	var existingID, existingContent string
 	var existingCreatedAt time.Time
 	var existingSequence int64
 
@@ -22,15 +21,14 @@ func (r *ChatRepository) SaveMessageWithReadUpdate(ctx context.Context, msg *dom
 	defer tx.Rollback(ctx)
 
 	checkQuery := `
-		SELECT id, cipher_text, created_at, sequence
+		SELECT id, content, created_at, sequence
 		FROM messages
 		WHERE chat_id=$1 AND client_message_id=$2 AND sender_id=$3
 	`
-	err = tx.QueryRow(ctx, checkQuery, msg.ChatID, msg.ClientMessageID, msg.SenderID).
-		Scan(&existingID, &existingCipherText, &existingCreatedAt, &existingSequence)
+	err = tx.QueryRow(ctx, checkQuery, msg.ChatID, msg.ClientMessageID, msg.SenderID).Scan(&existingID, &existingContent, &existingCreatedAt, &existingSequence)
 
 	if err == nil {
-		if !bytes.Equal(existingCipherText, msg.CipherText) {
+		if existingContent != msg.Content {
 			return domain.ErrMessageConflict // 409
 		}
 
@@ -49,15 +47,13 @@ func (r *ChatRepository) SaveMessageWithReadUpdate(ctx context.Context, msg *dom
             WHERE id = $1
             RETURNING last_sequence
         )
-		INSERT INTO messages (chat_id, sender_id, client_message_id, cipher_text, sequence)
+		INSERT INTO messages (chat_id, sender_id, client_message_id, content, sequence)
 		SELECT $1, $2, $3, $4, updated_chat.last_sequence
 		FROM updated_chat
 		RETURNING id, created_at, sequence
 	`
-
-	err = tx.QueryRow(ctx, query, msg.ChatID, msg.SenderID, msg.ClientMessageID, msg.CipherText).
-		Scan(&msg.ID, &msg.CreatedAt, &msg.Sequence)
-
+	
+	err = tx.QueryRow(ctx, query, msg.ChatID, msg.SenderID, msg.ClientMessageID, msg.Content).Scan(&msg.ID, &msg.CreatedAt, &msg.Sequence)
 	if err != nil {
 		return fmt.Errorf("failed to insert message and update chat: %w", err)
 	}
@@ -70,14 +66,9 @@ func (r *ChatRepository) SaveMessageWithReadUpdate(ctx context.Context, msg *dom
 	return tx.Commit(ctx)
 }
 
-func (r *ChatRepository) GetMessagesAfter(
-	ctx context.Context,
-	chatID string,
-	afterSequence int64,
-	limit int,
-) ([]domain.Message, error) {
+func (r *ChatRepository) GetMessagesAfter(ctx context.Context, chatID string, afterSequence int64, limit int) ([]domain.Message, error) {
 	query := `
-		SELECT id, chat_id, sender_id, client_message_id, cipher_text, sequence, created_at
+		SELECT id, chat_id, sender_id, client_message_id, content, sequence, created_at
 		FROM messages
 		WHERE chat_id=$1 AND sequence>$2
 		ORDER BY sequence ASC
@@ -99,7 +90,7 @@ func (r *ChatRepository) GetMessagesAfter(
 			&msg.ChatID,
 			&msg.SenderID,
 			&msg.ClientMessageID,
-			&msg.CipherText,
+			&msg.Content,
 			&msg.Sequence,
 			&msg.CreatedAt,
 		)
@@ -116,15 +107,10 @@ func (r *ChatRepository) GetMessagesAfter(
 	return messages, nil
 }
 
-func (r *ChatRepository) GetChatMessages(
-	ctx context.Context,
-	chatID string,
-	cursor *int64,
-	limit int,
-) ([]domain.Message, error) {
+func (r *ChatRepository) GetChatMessages(ctx context.Context, chatID string, cursor *int64, limit int) ([]domain.Message, error) {
 	query := `
 		SELECT 
-			id, chat_id, sender_id, cipher_text, created_at, client_message_id, sequence
+			id, chat_id, sender_id, content, created_at, client_message_id, sequence
 		FROM messages
 		WHERE chat_id = $1 AND ($2::bigint IS NULL OR sequence < $2)
 		ORDER BY sequence DESC
@@ -142,11 +128,11 @@ func (r *ChatRepository) GetChatMessages(
 		var msg domain.Message
 		err := rows.Scan(
 			&msg.ID,
-			&msg.ChatID,
-			&msg.SenderID,
-			&msg.CipherText,
-			&msg.CreatedAt,
-			&msg.ClientMessageID,
+			&msg.ChatID, 
+			&msg.SenderID, 
+			&msg.Content, 
+			&msg.CreatedAt, 
+			&msg.ClientMessageID, 
 			&msg.Sequence,
 		)
 		if err != nil {
@@ -158,6 +144,6 @@ func (r *ChatRepository) GetChatMessages(
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows error: %w", err)
 	}
-
+	
 	return messages, nil
 }

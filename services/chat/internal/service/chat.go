@@ -19,7 +19,7 @@ var (
 	ErrUserNotFound   = errors.New("user not found")
 )
 
-func (s *ChatService) CreateOrGetDirectChat(ctx context.Context, senderID, partnerID string) (domain.ChatSummary, bool, error) {
+func (s* ChatService) CreateOrGetDirectChat(ctx context.Context, senderID, partnerID string) (domain.ChatSummary, bool, error) {
 	if senderID == partnerID {
 		return domain.ChatSummary{}, false, ErrInvalidPartner
 	}

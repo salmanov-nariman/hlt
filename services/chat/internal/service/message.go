@@ -15,13 +15,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const maxCipherTextSize = 16 * 1024 // 16 КБ
-
-func (s *ChatService) ProcessMessage(ctx context.Context, senderID, chatID, clientMessageID string, cipherText []byte) (*domain.Message, error) {
-	if len(cipherText) == 0 || len(cipherText) > maxCipherTextSize {
-		return nil, domain.ErrInvalidCipherText
-	}
-
+func (s *ChatService) ProcessMessage(ctx context.Context, senderID, chatID, clientMessageID, content string) (*domain.Message, error) {
 	memberIDs, err := s.chatRepository.GetUsersInChat(ctx, chatID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get users: %w", err)
@@ -35,7 +29,7 @@ func (s *ChatService) ProcessMessage(ctx context.Context, senderID, chatID, clie
 		ChatID:          chatID,
 		SenderID:        senderID,
 		ClientMessageID: clientMessageID,
-		CipherText:      cipherText,
+		Content:         content,
 	}
 
 	err = s.chatRepository.SaveMessageWithReadUpdate(ctx, msg)
@@ -53,17 +47,16 @@ func (s *ChatService) ProcessMessage(ctx context.Context, senderID, chatID, clie
         var offlineUserIDs []string
 
 		for _, memberID := range mIDs {
-			if memberID == sID {
+			if memberID == senderID {
 				continue
 			}
 
 			_, err := s.rdb.Get(bgCtx, "online:"+memberID).Result()
-			switch err {
-			case redis.Nil:
+			if err == redis.Nil {
                 offlineUserIDs = append(offlineUserIDs, memberID)
-            case nil:
+            } else if err == nil {
                 onlineUserIDs = append(onlineUserIDs, memberID)
-            default:
+            } else {
                 log.Printf("[ChatSvc] Redis error for user %s: %v", memberID, err)
                 offlineUserIDs = append(offlineUserIDs, memberID)
             }

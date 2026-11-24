@@ -19,8 +19,6 @@ type ChatRepository interface {
 	GetDirectChat(ctx context.Context, userID1, userID2 string) (*string, error)
 	GetChatByID(ctx context.Context, chatID, userID string) (domain.ChatSummary, error)
 	GetChatMessages(ctx context.Context, chatID string, cursor *int64, limit int) ([]domain.Message, error)
-	SaveKey(ctx context.Context, userID string, publicKey []byte) error
-	GetLatestKey(ctx context.Context, userID string) (domain.UserPublicKey, error)
 }
 
 type Producer interface {

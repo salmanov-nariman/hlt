@@ -87,9 +87,6 @@ func main() {
 		r.Post("/chats/{chat_id}/read", middleware.REDMetricsMiddleware("/api/chats/{chat_id}/read", chatHandler.MarkAsRead))
 
 		r.Get("/sync/messages",  middleware.REDMetricsMiddleware("/api/sync/messages", chatHandler.SyncMessages))
-
-		r.Post("/public-keys", middleware.REDMetricsMiddleware("/api/public-keys", chatHandler.SaveKey))
-		r.Get("/public-keys/{user_id}", middleware.REDMetricsMiddleware("/api/public-keys/{user_id}", chatHandler.GetLatestKey))
 		
 		r.Get("/chat/ws", wsManager.ServeWS)
 	})

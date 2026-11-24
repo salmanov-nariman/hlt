@@ -1,7 +1,6 @@
 package service_test
 
 import (
-	"bytes"
 	"chat/internal/domain"
 	"chat/internal/dto"
 	"chat/internal/service"
@@ -19,44 +18,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func TestChatService_ProcessMessage_InvalidCipherText(t *testing.T) {
-	tests := []struct {
-		name       string
-		cipherText []byte
-	}{
-		{name: "nil ciphertext", cipherText: nil},
-		{name: "empty ciphertext", cipherText: []byte{}},
-		{name: "too large ciphertext", cipherText: make([]byte, 16*1024+1)},
-	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			rdb, mr := setupTestRedis(t)
-			defer mr.Close()
-
-			mockRepo := &mockChatRepository{
-				getUsersInChatFunc: func(ctx context.Context, chatID string) ([]string, error) {
-					t.Fatal("GetUsersInChat не должен вызываться при невалидном cipherText")
-					return nil, nil
-				},
-				saveMessageFunc: func(ctx context.Context, msg *domain.Message) error {
-					t.Fatal("SaveMessage не должен вызываться при невалидном cipherText")
-					return nil
-				},
-			}
-
-			svc := service.NewChatService(nil, mockRepo, rdb)
-
-			msg, err := svc.ProcessMessage(context.Background(), "user_1", "chat_1", "client_uuid_1", tc.cipherText)
-			if !errors.Is(err, domain.ErrInvalidCipherText) {
-				t.Fatalf("ожидалась ошибка %v, получено: %v", domain.ErrInvalidCipherText, err)
-			}
-			if msg != nil {
-				t.Errorf("ожидалось, что сообщение будет nil, получено: %+v", msg)
-			}
-		})
-	}
-}
 func TestChatService_ProcessMessage_UserNotMember(t *testing.T) {
 	ctx := context.Background()
 	chatID := "chat_1"
@@ -82,7 +44,7 @@ func TestChatService_ProcessMessage_UserNotMember(t *testing.T) {
 
 	svc := service.NewChatService(nil, mockRepo, rdb)
 
-	msg, err := svc.ProcessMessage(ctx, senderID, chatID, clientMsgID, []byte("Пытаюсь что-то написать"))
+	msg, err := svc.ProcessMessage(ctx, senderID, chatID, clientMsgID, "Пытаюсь что-то написать")
 
 	if err == nil {
 		t.Fatal("ожидалась ошибка доступа, но метод вернул nil")
@@ -103,7 +65,7 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 	chatID := "chat_1"
 	senderID := "good_user_1"
 	clientMsgID := "client_uuid_1"
-	cipherText := []byte{0x01, 0x00, 0xff, 0x42, 0xfe, 0x10}
+	content := "Привет всем!"
 
 	rdb, mr := setupTestRedis(t)
 	defer mr.Close()
@@ -114,7 +76,7 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 		},
 
 		saveMessageFunc: func(ctx context.Context, msg *domain.Message) error {
-			if msg.ChatID != chatID || !bytes.Equal(msg.CipherText, cipherText) || msg.SenderID != senderID {
+			if msg.ChatID != chatID || msg.Content != content || msg.SenderID != senderID {
 				t.Errorf("неверные данные для сохранения: %+v", msg)
 			}
 			msg.ID = "msg_1"
@@ -140,7 +102,7 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 
 	svc := service.NewChatService(mockPublisher, mockRepo, rdb)
 
-	msg, err := svc.ProcessMessage(ctx, senderID, chatID, clientMsgID, cipherText)
+	msg, err := svc.ProcessMessage(ctx, senderID, chatID, clientMsgID, content)
 
 	if err != nil {
 		t.Fatalf("ожидался успех, но получена ошибка: %v", err)
@@ -175,8 +137,8 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
         t.Errorf("ошибка распаковки Payload: %v", err)
     }
 
-	if !bytes.Equal(msg.CipherText, cipherText) {
-		t.Errorf("ожидался cipherText %v, получено: %v", cipherText, chatMsg.CipherText)
+	if chatMsg.Content != content {
+		t.Errorf("ожидался текст '%s', получено: '%s'", content, chatMsg.Content)
 	}
 
 	if chatMsg.ClientMessageID != clientMsgID {
@@ -244,7 +206,7 @@ func TestChatService_ProcessMessage_DBError(t *testing.T) {
 
 	svc := service.NewChatService(nil, mockRepo, rdb)
 
-	msg, err := svc.ProcessMessage(ctx, "user_1", "chat_1", "client_uuid_1", []byte("something test"))
+	msg, err := svc.ProcessMessage(ctx, "user_1", "chat_1", "client_uuid_1", "something test")
 
 	if err == nil {
 		t.Fatal("ожидалась ошибка базы данных, но метод вернул nil")

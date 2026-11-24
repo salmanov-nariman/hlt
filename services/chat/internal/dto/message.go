@@ -9,7 +9,7 @@ type MessageResponse struct {
 	ID              string    `json:"id"`
 	ChatID          string    `json:"chat_id"`
 	SenderID        string    `json:"sender_id"`
-	CipherText      []byte    `json:"cipher_text"`
+	Content         string    `json:"content"`
 	CreatedAt       time.Time `json:"created_at"`
 	ClientMessageID string    `json:"client_message_id"`
 	Sequence        int64     `json:"sequence"`
@@ -17,7 +17,7 @@ type MessageResponse struct {
 
 type PostMessageRequest struct {
 	ClientMessageID string `json:"client_message_id"`
-	CipherText      []byte `json:"cipher_text"`
+	Text            string `json:"text"`
 }
 
 type PaginatedChatMessagesResponse struct {
@@ -33,7 +33,7 @@ func NewMessageResponse(msg *domain.Message) *MessageResponse {
 		ID:              msg.ID,
 		ChatID:          msg.ChatID,
 		SenderID:        msg.SenderID,
-		CipherText:      msg.CipherText,
+		Content:         msg.Content,
 		CreatedAt:       msg.CreatedAt,
 		ClientMessageID: msg.ClientMessageID,
 		Sequence:        msg.Sequence,

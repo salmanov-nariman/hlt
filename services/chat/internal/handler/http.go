@@ -17,8 +17,6 @@ import (
 	"github.com/go-chi/chi"
 )
 
-const maxMessageBodySize = 32 * 1024
-
 type ChatHandler struct {
 	chatService   *service.ChatService
 	kafkaProducer *broker.Producer
@@ -37,27 +35,15 @@ func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 
 	chatID := chi.URLParam(r, "chat_id")
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxMessageBodySize)
-
 	var req dto.PostMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		var maxBytesErr *http.MaxBytesError
-		if errors.As(err, &maxBytesErr) {
-			httputil.JSONError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Сообщение слишком большое")
-			return
-		}
 		httputil.JSONError(w, http.StatusBadRequest, "INVALID_JSON", "Неверный формат запроса")
 		return
 	}
 
-	msg, err := h.chatService.ProcessMessage(r.Context(), senderID, chatID, req.ClientMessageID, req.CipherText)
+	msg, err := h.chatService.ProcessMessage(r.Context(), senderID, chatID, req.ClientMessageID, req.Text)
 
 	if err != nil {
-		if errors.Is(err, domain.ErrInvalidCipherText) {
-			httputil.JSONError(w, http.StatusBadRequest, "INVALID_CIPHER_TEXT", "Неверный формат шифротекста")
-			return
-		}
-
 		if errors.Is(err, domain.ErrMessageConflict) {
 			httputil.JSONError(w, http.StatusConflict, "CLIENT_MESSAGE_ID_CONFLICT", "")
 			return
@@ -89,7 +75,7 @@ func mapDomainToDTO(msg *domain.Message) *dto.MessageResponse {
 			ID:              msg.ID,
 			ChatID:          msg.ChatID,
 			SenderID:        msg.SenderID,
-			CipherText:      msg.CipherText,
+			Content:         msg.Content,
 			CreatedAt:       msg.CreatedAt,
 			ClientMessageID: msg.ClientMessageID,
 			Sequence:        msg.Sequence,
@@ -100,7 +86,7 @@ func mapDomainToDTO(msg *domain.Message) *dto.MessageResponse {
 func (h *ChatHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
 	senderID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
+		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")		
 		return
 	}
 
@@ -138,7 +124,7 @@ func (h *ChatHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
 			ID:              chat.LastMessage.ID,
 			ChatID:          chat.LastMessage.ChatID,
 			SenderID:        chat.LastMessage.SenderID,
-			CipherText:      chat.LastMessage.CipherText,
+			Content:         chat.LastMessage.Content,
 			CreatedAt:       chat.LastMessage.CreatedAt,
 			ClientMessageID: chat.LastMessage.ClientMessageID,
 			Sequence:        chat.LastMessage.Sequence,
@@ -203,7 +189,7 @@ func (h *ChatHandler) SyncMessages(w http.ResponseWriter, r *http.Request) {
 			ID:              m.ID,
 			ChatID:          m.ChatID,
 			SenderID:        m.SenderID,
-			CipherText:      m.CipherText,
+			Content:         m.Content,
 			CreatedAt:       m.CreatedAt,
 			ClientMessageID: m.ClientMessageID,
 			Sequence:        m.Sequence,
@@ -297,7 +283,7 @@ func (h *ChatHandler) GetUserChats(w http.ResponseWriter, r *http.Request) {
 				ID:              c.LastMessage.ID,
 				ChatID:          c.LastMessage.ChatID,
 				SenderID:        c.LastMessage.SenderID,
-				CipherText:      c.LastMessage.CipherText,
+				Content:         c.LastMessage.Content,
 				CreatedAt:       c.LastMessage.CreatedAt,
 				ClientMessageID: c.LastMessage.ClientMessageID,
 				Sequence:        c.LastMessage.Sequence,
@@ -342,7 +328,7 @@ func (h *ChatHandler) GetChat(w http.ResponseWriter, r *http.Request) {
 			ID:              chat.LastMessage.ID,
 			ChatID:          chat.LastMessage.ChatID,
 			SenderID:        chat.LastMessage.SenderID,
-			CipherText:      chat.LastMessage.CipherText,
+			Content:         chat.LastMessage.Content,
 			CreatedAt:       chat.LastMessage.CreatedAt,
 			ClientMessageID: chat.LastMessage.ClientMessageID,
 			Sequence:        chat.LastMessage.Sequence,
@@ -408,79 +394,11 @@ func (h *ChatHandler) GetChatMessages(w http.ResponseWriter, r *http.Request) {
 			ID:              msg.ID,
 			ChatID:          msg.ChatID,
 			SenderID:        msg.SenderID,
-			CipherText:      msg.CipherText,
+			Content:         msg.Content,
 			CreatedAt:       msg.CreatedAt,
 			ClientMessageID: msg.ClientMessageID,
 			Sequence:        msg.Sequence,
 		})
-	}
-
-	httputil.JSON(w, http.StatusOK, response)
-}
-
-func (h *ChatHandler) SaveKey(w http.ResponseWriter, r *http.Request) {
-	userID, ok := middleware.GetUserID(r.Context())
-	if !ok {
-		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
-		return
-	}
-
-	var req dto.SaveKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.JSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "Некорректное тело запроса")
-		return
-	}
-
-	if err := h.chatService.SaveKey(r.Context(), userID, req.PublicKey); err != nil {
-		if errors.Is(err, domain.ErrInvalidPublicKey) {
-			httputil.JSONError(w, http.StatusBadRequest, "INVALID_KEY", "Некорректный публичный ключ")
-			return
-		}
-
-		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
-		return
-	}
-
-	httputil.NoContent(w)
-}
-
-func (h *ChatHandler) GetLatestKey(w http.ResponseWriter, r *http.Request) {
-	userID, ok := middleware.GetUserID(r.Context())
-	if !ok {
-		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
-		return
-	}
-
-	targetUserID := chi.URLParam(r, "user_id")
-	if targetUserID == "" {
-		httputil.JSONError(w, http.StatusBadRequest, "INVALID_URL", "")
-		return
-	}
-
-	chatID := r.URL.Query().Get("chat_id")
-	if chatID == "" {
-		httputil.JSONError(w, http.StatusBadRequest, "INVALID_QUERY_PARAM", "Требуется chat_id")
-		return
-	}
-
-	publicKey, err := h.chatService.GetLatestKey(r.Context(), chatID, userID, targetUserID)
-	if err != nil {
-		switch {
-		case errors.Is(err, domain.ErrUserNotInChat):
-			httputil.JSONError(w, http.StatusForbidden, "FORBIDDEN", "Нет доступа к ключу пользователя")
-		case errors.Is(err, domain.ErrPublicKeyNotFound):
-			httputil.JSONError(w, http.StatusNotFound, "KEY_NOT_FOUND", "Публичный ключ не найден")
-		default:
-			httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
-		}
-		return
-
-	}
-	response := dto.UserPublicKeyResponse{
-		ID:        publicKey.ID,
-		UserID:    publicKey.UserID,
-		PublicKey: publicKey.PublicKey,
-		UpdatedAt: publicKey.UpdatedAt,
 	}
 
 	httputil.JSON(w, http.StatusOK, response)
