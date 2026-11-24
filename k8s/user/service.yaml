@@ -9,5 +9,9 @@ spec:
   selector:
     app: user
   ports:
-    - port: 80
-      targetPort: 8080
+    - name: http
+      port: 80
+      targetPort: http
+    - name: grpc
+      port: 9091
+      targetPort: grpc

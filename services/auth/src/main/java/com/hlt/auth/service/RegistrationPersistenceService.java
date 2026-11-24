@@ -21,6 +21,11 @@ import java.util.Optional;
 @Service
 public class RegistrationPersistenceService {
 
+    private static final String ACCOUNT_NOT_FOUND = "Аккаунт не найден. Зарегистрируйтесь заново";
+    private static final String RESEND_NOT_AVAILABLE = "Повторная отправка недоступна";
+    private static final String VERIFICATION_NOT_FOUND = "Запись подтверждения не найдена";
+    private static final String RESEND_TOO_SOON = "Повторите запрос позже";
+
     private final CredentialsRepository credentialsRepository;
     private final EmailVerificationRepository emailVerificationRepository;
     private final VerificationCodeService verificationCodeService;
@@ -56,10 +61,10 @@ public class RegistrationPersistenceService {
             String email, String codeHash
     ) {
         return credentialsRepository.findByEmailForUpdate(email)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.GONE, "Аккаунт не найден. Зарегистрируйтесь заново")))
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.GONE, ACCOUNT_NOT_FOUND)))
                 .flatMap(account -> {
                     if (account.getStatus() != AccountStatus.PENDING_VERIFICATION) {
-                        return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Повторная отправка недоступна"));
+                        return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, RESEND_NOT_AVAILABLE));
                     }
 
                     Instant now = Instant.now();
@@ -71,12 +76,12 @@ public class RegistrationPersistenceService {
 
                     return emailVerificationRepository
                             .findByAccountId(account.getId())
-                            .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Запись подтверждения не найдена")))
+                            .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, VERIFICATION_NOT_FOUND)))
                             .flatMap(verification -> {
                                 Instant lastSentAt = verification.getLastSentAt();
 
                                 if (lastSentAt != null && now.isBefore(lastSentAt.plusSeconds(60))) {
-                                    return Mono.error(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Повторите запрос позже"));
+                                    return Mono.error(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, RESEND_TOO_SOON));
                                 }
 
                                 verification.setCodeHash(codeHash);
