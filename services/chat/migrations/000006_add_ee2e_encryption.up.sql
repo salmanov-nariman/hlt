@@ -12,6 +12,12 @@ CREATE INDEX IF NOT EXISTS idx_user_public_keys_latest
 
 TRUNCATE TABLE messages;
 
+UPDATE chats
+SET last_sequence = 0;
+
+UPDATE chat_members
+SET last_read_sequence = 0;
+
 ALTER TABLE messages
 	DROP COLUMN IF EXISTS content,
     ADD  COLUMN cipher_text BYTEA NOT NULL CHECK (octet_length(cipher_text) > 0);

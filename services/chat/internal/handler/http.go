@@ -53,6 +53,11 @@ func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 	msg, err := h.chatService.ProcessMessage(r.Context(), senderID, chatID, req.ClientMessageID, req.CipherText)
 
 	if err != nil {
+		if errors.Is(err, domain.ErrInvalidCipherText) {
+			httputil.JSONError(w, http.StatusBadRequest, "INVALID_CIPHER_TEXT", "Неверный формат шифротекста")
+			return
+		}
+
 		if errors.Is(err, domain.ErrMessageConflict) {
 			httputil.JSONError(w, http.StatusConflict, "CLIENT_MESSAGE_ID_CONFLICT", "")
 			return
