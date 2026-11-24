@@ -7,7 +7,7 @@ type Message struct {
 	ChatID          string
 	SenderID        string
 	ClientMessageID string
-	Content         string
+	CipherText      []byte
 	Sequence        int64
 	CreatedAt       time.Time
 }

@@ -7,4 +7,9 @@ metadata:
 data:
   DB_URL: "r2dbc:postgresql://auth-postgres.hlt.svc.cluster.local:5432/auth_db"
   DB_URL_JDBC: "jdbc:postgresql://auth-postgres.hlt.svc.cluster.local:5432/auth_db"
+  EMAIL_GRPC_TARGET: "email-service:9090"
+  USER_GRPC_TARGET: "user-service:9091"
   ACCESS_EXPIRATION: "900000"
+  VERIFICATION_CODE_EXPIRATION: "5m"
+  VERIFICATION_REGISTRATION_EXPIRATION: "15m"
+  VERIFICATION_MAX_ATTEMPTS: "5"

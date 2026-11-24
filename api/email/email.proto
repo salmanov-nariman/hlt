@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package email;
+
+import "google/protobuf/empty.proto";
+
+option java_package = "com.hlt.email.grpc";
+option java_multiple_files = true;
+
+service EmailService {
+  rpc SendVerificationEmail(SendVerificationEmailRequest)
+      returns (google.protobuf.Empty);
+}
+
+message SendVerificationEmailRequest {
+  string recipient_email = 1;
+  string verification_code = 2;
+}

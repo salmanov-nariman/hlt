@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"chat/internal/broker"
+	"chat/internal/domain"
 	"chat/internal/dto"
-	"chat/internal/repository"
+	"chat/internal/httputil"
 	"chat/internal/service"
 	"chat/middleware"
 	"encoding/json"
@@ -11,126 +13,156 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/go-chi/chi"
 )
 
+const maxMessageBodySize = 32 * 1024
+
 type ChatHandler struct {
-	chatService *service.ChatService
+	chatService   *service.ChatService
+	kafkaProducer *broker.Producer
 }
 
-func NewChatHandler(chatService *service.ChatService) *ChatHandler {
-	return &ChatHandler{chatService: chatService}
+func NewChatHandler(chatService *service.ChatService, kafkaProducer *broker.Producer) *ChatHandler {
+	return &ChatHandler{chatService: chatService, kafkaProducer: kafkaProducer}
 }
 
 func (h *ChatHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	senderID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
 		return
 	}
 
-	var req struct {
-		ChatID          string `json:"chat_id"`
-		ClientMessageID string `json:"client_message_id"`
-		Text            string `json:"text"`
-	}
+	chatID := chi.URLParam(r, "chat_id")
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxMessageBodySize)
+
+	var req dto.PostMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			httputil.JSONError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Сообщение слишком большое")
+			return
+		}
+		httputil.JSONError(w, http.StatusBadRequest, "INVALID_JSON", "Неверный формат запроса")
 		return
 	}
 
-	msg, err := h.chatService.ProcessMessage(r.Context(), senderID, req.ChatID, req.ClientMessageID, req.Text)
+	msg, err := h.chatService.ProcessMessage(r.Context(), senderID, chatID, req.ClientMessageID, req.CipherText)
 
-	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		if errors.Is(err, domain.ErrInvalidCipherText) {
+			httputil.JSONError(w, http.StatusBadRequest, "INVALID_CIPHER_TEXT", "Неверный формат шифротекста")
+			return
+		}
 
-	var messageDTO *dto.MessageResponse
-	if msg != nil {
-		messageDTO = &dto.MessageResponse{
+		if errors.Is(err, domain.ErrMessageConflict) {
+			httputil.JSONError(w, http.StatusConflict, "CLIENT_MESSAGE_ID_CONFLICT", "")
+			return
+		}
+
+		if errors.Is(err, domain.ErrUserNotInChat) {
+			httputil.JSONError(w, http.StatusForbidden, "FORBIDDEN", "Нет доступа к чату")
+			return
+		}
+
+		if errors.Is(err, domain.ErrMessageAlreadyExists) {
+			httputil.JSON(w, http.StatusOK, mapDomainToDTO(msg))
+			return
+		}
+
+		log.Printf("ProcessMessage error: %v", err)
+		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
+		return
+	}
+
+	httputil.JSON(w, http.StatusCreated, mapDomainToDTO(msg))
+}
+
+func mapDomainToDTO(msg *domain.Message) *dto.MessageResponse {
+	if msg == nil {
+		return nil
+	} else {
+		return &dto.MessageResponse{
 			ID:              msg.ID,
 			ChatID:          msg.ChatID,
 			SenderID:        msg.SenderID,
-			Content:         msg.Content,
+			CipherText:      msg.CipherText,
 			CreatedAt:       msg.CreatedAt,
 			ClientMessageID: msg.ClientMessageID,
 			Sequence:        msg.Sequence,
 		}
 	}
-
-	if err != nil {
-		if errors.Is(err, repository.ErrMessageConflict) {
-			w.WriteHeader(http.StatusConflict) // 409
-			w.Write([]byte(`{"code":"CLIENT_MESSAGE_ID_CONFLICT"}`))
-			return
-		} else if errors.Is(err, repository.ErrMessageAlreadyExists) {
-			w.WriteHeader(http.StatusOK) // 200 OK
-			json.NewEncoder(w).Encode(msg)
-			return
-		}
-
-		log.Printf("ProcessMessage error: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(messageDTO)
 }
 
 func (h *ChatHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	senderID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
 		return
 	}
 
-	var req struct {
-		MemberIDs []string `json:"member_ids"`
-	}
+	var req dto.CreateChatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		httputil.JSONError(w, http.StatusBadRequest, "INVALID_JSON", "Неверный формат запроса")
 		return
 	}
 
-	if len(req.MemberIDs) == 0 {
-		http.Error(w, "At least one chat member is required", http.StatusBadRequest)
-		return
-	}
-
-	chatID, err := h.chatService.CreateChat(r.Context(), senderID, req.MemberIDs)
+	chat, isNew, err := h.chatService.CreateOrGetDirectChat(r.Context(), senderID, req.PartnerID)
 	if err != nil {
-		log.Printf("[ERROR] Не удалось создать чат: %v", err)
 
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		if errors.Is(err, service.ErrInvalidPartner) {
+			httputil.JSONError(w, http.StatusBadRequest, "INVALID_PARTNER", "Невозможно создать чат самим с собой")
+			return
+		}
+
+		if errors.Is(err, service.ErrUserNotFound) {
+			httputil.JSONError(w, http.StatusNotFound, "USER_NOT_FOUND", "")
+			return
+		}
+
+		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
+	response := dto.ChatSummaryResponse{
+		ID:          chat.ID,
+		UnreadCount: chat.UnreadCount,
+		UpdatedAt:   chat.UpdatedAt,
+		Revision:    chat.Revision,
+	}
+	if chat.LastMessage != nil {
+		response.LastMessage = &dto.MessageResponse{
+			ID:              chat.LastMessage.ID,
+			ChatID:          chat.LastMessage.ChatID,
+			SenderID:        chat.LastMessage.SenderID,
+			CipherText:      chat.LastMessage.CipherText,
+			CreatedAt:       chat.LastMessage.CreatedAt,
+			ClientMessageID: chat.LastMessage.ClientMessageID,
+			Sequence:        chat.LastMessage.Sequence,
+		}
+	}
 
-	json.NewEncoder(w).Encode(map[string]string{
-		"chat_id": chatID,
-	})
+	statusCode := http.StatusOK
+	if isNew {
+		statusCode = http.StatusCreated
+	}
+
+	httputil.JSON(w, statusCode, response)
 }
 
 func (h *ChatHandler) SyncMessages(w http.ResponseWriter, r *http.Request) {
 	senderID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
 		return
 	}
 
 	chatID := r.URL.Query().Get("chat_id")
 	if chatID == "" {
-		http.Error(w, "missing chat_id query parameter", http.StatusBadRequest)
+		httputil.JSONError(w, http.StatusBadRequest, "MISSING_QUERY_PARAM", "Отсутствует query parameter: chat_id")
 		return
 	}
 
@@ -139,7 +171,7 @@ func (h *ChatHandler) SyncMessages(w http.ResponseWriter, r *http.Request) {
 	if afterSeqStr != "" {
 		parsedSeq, err := strconv.ParseInt(afterSeqStr, 10, 64)
 		if err != nil {
-			http.Error(w, "invalid after_sequence parameter", http.StatusBadRequest)
+			httputil.JSONError(w, http.StatusBadRequest, "INVALID_QUERY_PARAM", "")
 			return
 		}
 		afterSequence = parsedSeq
@@ -157,11 +189,11 @@ func (h *ChatHandler) SyncMessages(w http.ResponseWriter, r *http.Request) {
 	messages, err := h.chatService.SyncMessages(r.Context(), senderID, chatID, afterSequence, limit)
 	if err != nil {
 		if strings.Contains(err.Error(), "is not member of chat") {
-			http.Error(w, err.Error(), http.StatusForbidden)
+			httputil.JSONError(w, http.StatusForbidden, "FORBIDDEN", "")
 			return
 		}
 
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
 		return
 	}
 
@@ -171,69 +203,88 @@ func (h *ChatHandler) SyncMessages(w http.ResponseWriter, r *http.Request) {
 			ID:              m.ID,
 			ChatID:          m.ChatID,
 			SenderID:        m.SenderID,
-			Content:         m.Content,
+			CipherText:      m.CipherText,
 			CreatedAt:       m.CreatedAt,
 			ClientMessageID: m.ClientMessageID,
 			Sequence:        m.Sequence,
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "failed to encode response", http.StatusInternalServerError)
-	}
-}
-
-type MarkReadRequest struct {
-	ChatID           string `json:"chat_id"`
-	LastReadSequence int64  `json:"last_read_sequence"`
+	httputil.JSON(w, http.StatusOK, response)
 }
 
 func (h *ChatHandler) MarkAsRead(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
 		return
 	}
 
-	var req MarkReadRequest
+	chatID := chi.URLParam(r, "chat_id")
+
+	var req dto.MarkReadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		httputil.JSONError(w, http.StatusBadRequest, "INVALID_JSON", "Неверный формат запроса")
 		return
 	}
 
-	if req.ChatID == "" || req.LastReadSequence <= 0 {
-		http.Error(w, "chat_id and valid last_read_sequence are required", http.StatusBadRequest)
+	if req.LastReadSequence <= 0 {
+		httputil.JSONError(w, http.StatusBadRequest, "INVALID_JSON", "")
 		return
 	}
 
-	err := h.chatService.UpdateReadStatus(r.Context(), req.ChatID, userID, req.LastReadSequence)
+	err := h.chatService.UpdateReadStatus(r.Context(), chatID, userID, req.LastReadSequence)
 	if err != nil {
 		if strings.Contains(err.Error(), "is not member of chat") {
-			http.Error(w, err.Error(), http.StatusForbidden)
+			httputil.JSONError(w, http.StatusForbidden, "FORBIDDEN", "")
 			return
 		}
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+
+		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
+	httputil.NoContent(w)
 }
 
 func (h *ChatHandler) GetUserChats(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
-
-	chats, err := h.chatService.GetUserChats(r.Context(), userID)
-	if err != nil {
-		log.Printf("chatService.GetUserChats error: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
 		return
 	}
 
-	response := make([]dto.ChatSummaryResponse, 0, len(chats))
+	limit := 20
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			if l > 50 {
+				l = 50
+			}
+			limit = l
+		} else {
+			httputil.JSONError(w, http.StatusBadRequest, "INVALID_PAGINATION", "")
+			return
+		}
+
+	}
+
+	cursor := r.URL.Query().Get("cursor")
+
+	chats, nextCursor, err := h.chatService.GetUserChats(r.Context(), userID, limit, cursor)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidCursor) {
+			httputil.JSONError(w, http.StatusBadRequest, "INVALID_CURSOR", "")
+			return
+		}
+		log.Printf("chatService.GetUserChats error: %v", err)
+		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
+		return
+	}
+
+	response := dto.PaginatedChatsResponse{
+		Items:      make([]dto.ChatSummaryResponse, 0, len(chats)),
+		NextCursor: nextCursor,
+	}
 
 	for _, c := range chats {
 		summaryDTO := dto.ChatSummaryResponse{
@@ -246,19 +297,191 @@ func (h *ChatHandler) GetUserChats(w http.ResponseWriter, r *http.Request) {
 				ID:              c.LastMessage.ID,
 				ChatID:          c.LastMessage.ChatID,
 				SenderID:        c.LastMessage.SenderID,
-				Content:         c.LastMessage.Content,
+				CipherText:      c.LastMessage.CipherText,
 				CreatedAt:       c.LastMessage.CreatedAt,
 				ClientMessageID: c.LastMessage.ClientMessageID,
 				Sequence:        c.LastMessage.Sequence,
 			}
 		}
 
-		response = append(response, summaryDTO)
+		response.Items = append(response.Items, summaryDTO)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("failed to encode GetUserChats response: %v", err)
+	httputil.JSON(w, http.StatusOK, response)
+}
+
+func (h *ChatHandler) GetChat(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
+		return
 	}
+
+	chatID := chi.URLParam(r, "chat_id")
+
+	chat, err := h.chatService.GetChat(r.Context(), chatID, userID)
+	if err != nil {
+
+		if errors.Is(err, domain.ErrChatNotFound) || errors.Is(err, domain.ErrUserNotInChat) {
+			httputil.JSONError(w, http.StatusNotFound, "NOT_FOUND", "Чат не найден")
+			return
+		}
+
+		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
+		return
+	}
+
+	resp := dto.ChatSummaryResponse{
+		ID:          chat.ID,
+		UnreadCount: chat.UnreadCount,
+		UpdatedAt:   chat.UpdatedAt,
+		Revision:    chat.Revision,
+	}
+	if chat.LastMessage != nil {
+		resp.LastMessage = &dto.MessageResponse{
+			ID:              chat.LastMessage.ID,
+			ChatID:          chat.LastMessage.ChatID,
+			SenderID:        chat.LastMessage.SenderID,
+			CipherText:      chat.LastMessage.CipherText,
+			CreatedAt:       chat.LastMessage.CreatedAt,
+			ClientMessageID: chat.LastMessage.ClientMessageID,
+			Sequence:        chat.LastMessage.Sequence,
+		}
+	}
+
+	httputil.JSON(w, http.StatusOK, resp)
+}
+
+func (h *ChatHandler) GetChatMessages(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
+		return
+	}
+
+	chatID := chi.URLParam(r, "chat_id")
+	if chatID == "" {
+		httputil.JSONError(w, http.StatusBadRequest, "INVALID_URL", "")
+		return
+	}
+
+	limit := 50
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			if parsedLimit > 100 {
+				limit = 100
+			} else {
+				limit = parsedLimit
+			}
+		}
+	}
+
+	var cursor *int64
+	if cursorStr := r.URL.Query().Get("cursor"); cursorStr != "" {
+		parsedCursor, err := strconv.ParseInt(cursorStr, 10, 64)
+		if err != nil {
+			httputil.JSONError(w, http.StatusBadRequest, "INVALID_CURSOR", "Некорректный формат курсора")
+			return
+		}
+		cursor = &parsedCursor
+	}
+
+	messages, nextCursor, err := h.chatService.GetChatMessages(r.Context(), chatID, userID, cursor, limit)
+	if err != nil {
+
+		if errors.Is(err, service.ErrUserNotFound) {
+			httputil.JSONError(w, http.StatusForbidden, "FORBIDDEN", "Нет доступа к чату")
+			return
+		}
+
+		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
+		return
+	}
+
+	response := dto.PaginatedChatMessagesResponse{
+		Messages:   make([]dto.MessageResponse, 0, len(messages)),
+		NextCursor: nextCursor,
+	}
+
+	for _, msg := range messages {
+		response.Messages = append(response.Messages, dto.MessageResponse{
+			ID:              msg.ID,
+			ChatID:          msg.ChatID,
+			SenderID:        msg.SenderID,
+			CipherText:      msg.CipherText,
+			CreatedAt:       msg.CreatedAt,
+			ClientMessageID: msg.ClientMessageID,
+			Sequence:        msg.Sequence,
+		})
+	}
+
+	httputil.JSON(w, http.StatusOK, response)
+}
+
+func (h *ChatHandler) SaveKey(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
+		return
+	}
+
+	var req dto.SaveKeyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.JSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "Некорректное тело запроса")
+		return
+	}
+
+	if err := h.chatService.SaveKey(r.Context(), userID, req.PublicKey); err != nil {
+		if errors.Is(err, domain.ErrInvalidPublicKey) {
+			httputil.JSONError(w, http.StatusBadRequest, "INVALID_KEY", "Некорректный публичный ключ")
+			return
+		}
+
+		httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
+		return
+	}
+
+	httputil.NoContent(w)
+}
+
+func (h *ChatHandler) GetLatestKey(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		httputil.JSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Требуется авторизация")
+		return
+	}
+
+	targetUserID := chi.URLParam(r, "user_id")
+	if targetUserID == "" {
+		httputil.JSONError(w, http.StatusBadRequest, "INVALID_URL", "")
+		return
+	}
+
+	chatID := r.URL.Query().Get("chat_id")
+	if chatID == "" {
+		httputil.JSONError(w, http.StatusBadRequest, "INVALID_QUERY_PARAM", "Требуется chat_id")
+		return
+	}
+
+	publicKey, err := h.chatService.GetLatestKey(r.Context(), chatID, userID, targetUserID)
+	if err != nil {
+		switch {
+		case errors.Is(err, domain.ErrUserNotInChat):
+			httputil.JSONError(w, http.StatusForbidden, "FORBIDDEN", "Нет доступа к ключу пользователя")
+		case errors.Is(err, domain.ErrPublicKeyNotFound):
+			httputil.JSONError(w, http.StatusNotFound, "KEY_NOT_FOUND", "Публичный ключ не найден")
+		default:
+			httputil.JSONError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Внутренняя ошибка сервера")
+		}
+		return
+
+	}
+	response := dto.UserPublicKeyResponse{
+		ID:        publicKey.ID,
+		UserID:    publicKey.UserID,
+		PublicKey: publicKey.PublicKey,
+		UpdatedAt: publicKey.UpdatedAt,
+	}
+
+	httputil.JSON(w, http.StatusOK, response)
 }

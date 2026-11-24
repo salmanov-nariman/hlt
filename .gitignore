@@ -1,2 +1,6 @@
 .idea/
 .services/chat/frontend/
+/k8s/auth/secret.yaml
+/k8s/email/secret.yaml
+/db/init/docker-compose.yaml
+services/notifier/serviceAccountKey.json

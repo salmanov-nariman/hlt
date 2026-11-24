@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - 'services/auth/**'
+      - 'api/email/**'
+      - 'api/user/**'
       - '.github/workflows/auth.yml'
 
   push:
@@ -13,6 +15,8 @@ on:
       - main
     paths:
       - 'services/auth/**'
+      - 'api/email/**'
+      - 'api/user/**'
       - '.github/workflows/auth.yml'
 
 permissions:
@@ -49,6 +53,11 @@ jobs:
       POSTGRES_PASSWORD: test
       JWT_SECRET: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
       ACCESS_EXPIRATION: '900000'
+      VERIFICATION_CODE_EXPIRATION: '5m'
+      VERIFICATION_MAX_ATTEMPTS: "5"
+      VERIFICATION_REGISTRATION_EXPIRATION: "15m"
+      EMAIL_GRPC_TARGET: 'localhost:9090'
+      USER_GRPC_TARGET: 'localhost:9091'
 
     steps:
       - name: Checkout repository
@@ -66,7 +75,7 @@ jobs:
         run: bash ./mvnw --batch-mode --no-transfer-progress verify
 
       - name: Build Docker image
-        run: docker build --tag hlt-auth:ci .
+        run: docker build -f Dockerfile --tag hlt-auth:ci ../..
 
   publish-image:
     name: Publish Auth image
@@ -102,7 +111,8 @@ jobs:
       - name: Build and push Docker image
         run: |
           docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            --tag "$IMAGE" \
-            --push \
-            ./services/auth
+          --platform linux/amd64,linux/arm64 \
+          --file services/auth/Dockerfile \
+          --tag "$IMAGE" \
+          --push \
+          .

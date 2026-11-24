@@ -1,25 +1,70 @@
 package service_test
 
 import (
+	"bytes"
 	"chat/internal/domain"
+	"chat/internal/dto"
 	"chat/internal/service"
 	"chat/internal/websocket"
-	"errors"
-	"strings"
-
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 )
 
+func TestChatService_ProcessMessage_InvalidCipherText(t *testing.T) {
+	tests := []struct {
+		name       string
+		cipherText []byte
+	}{
+		{name: "nil ciphertext", cipherText: nil},
+		{name: "empty ciphertext", cipherText: []byte{}},
+		{name: "too large ciphertext", cipherText: make([]byte, 16*1024+1)},
+	}
 
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rdb, mr := setupTestRedis(t)
+			defer mr.Close()
+
+			mockRepo := &mockChatRepository{
+				getUsersInChatFunc: func(ctx context.Context, chatID string) ([]string, error) {
+					t.Fatal("GetUsersInChat не должен вызываться при невалидном cipherText")
+					return nil, nil
+				},
+				saveMessageFunc: func(ctx context.Context, msg *domain.Message) error {
+					t.Fatal("SaveMessage не должен вызываться при невалидном cipherText")
+					return nil
+				},
+			}
+
+			svc := service.NewChatService(nil, mockRepo, rdb)
+
+			msg, err := svc.ProcessMessage(context.Background(), "user_1", "chat_1", "client_uuid_1", tc.cipherText)
+			if !errors.Is(err, domain.ErrInvalidCipherText) {
+				t.Fatalf("ожидалась ошибка %v, получено: %v", domain.ErrInvalidCipherText, err)
+			}
+			if msg != nil {
+				t.Errorf("ожидалось, что сообщение будет nil, получено: %+v", msg)
+			}
+		})
+	}
+}
 func TestChatService_ProcessMessage_UserNotMember(t *testing.T) {
 	ctx := context.Background()
 	chatID := "chat_1"
 	senderID := "bad_user_1"
 	clientMsgID := "client_uuid_1"
+
+	rdb, mr := setupTestRedis(t)
+	defer mr.Close()
 
 	mockRepo := &mockChatRepository{
 		getUsersInChatFunc: func(ctx context.Context, requestedRoomID string) ([]string, error) {
@@ -35,9 +80,9 @@ func TestChatService_ProcessMessage_UserNotMember(t *testing.T) {
 		},
 	}
 
-	svc := service.NewChatService(nil, mockRepo)
+	svc := service.NewChatService(nil, mockRepo, rdb)
 
-	msg, err := svc.ProcessMessage(ctx, senderID, chatID, clientMsgID, "Пытаюсь что-то написать")
+	msg, err := svc.ProcessMessage(ctx, senderID, chatID, clientMsgID, []byte("Пытаюсь что-то написать"))
 
 	if err == nil {
 		t.Fatal("ожидалась ошибка доступа, но метод вернул nil")
@@ -58,7 +103,10 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 	chatID := "chat_1"
 	senderID := "good_user_1"
 	clientMsgID := "client_uuid_1"
-	content := "Привет всем!"
+	cipherText := []byte{0x01, 0x00, 0xff, 0x42, 0xfe, 0x10}
+
+	rdb, mr := setupTestRedis(t)
+	defer mr.Close()
 
 	mockRepo := &mockChatRepository{
 		getUsersInChatFunc: func(ctx context.Context, requestedRoomID string) ([]string, error) {
@@ -66,7 +114,7 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 		},
 
 		saveMessageFunc: func(ctx context.Context, msg *domain.Message) error {
-			if msg.ChatID != chatID || msg.Content != content || msg.SenderID != senderID {
+			if msg.ChatID != chatID || !bytes.Equal(msg.CipherText, cipherText) || msg.SenderID != senderID {
 				t.Errorf("неверные данные для сохранения: %+v", msg)
 			}
 			msg.ID = "msg_1"
@@ -77,19 +125,22 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
         },
 	}
 
-	wsCalled := false
-	var capturedEvents []websocket.Event
+	mr.Set("online:good_user_2", "1")
 
-	mockWS := &mockWSBroadcaster{
-		broadcastEventFunc: func(event websocket.Event) {
-			wsCalled = true
-			capturedEvents = append(capturedEvents, event)	
+	eventChan := make(chan interface{}, 2)
+
+	mockPublisher := &mockEventPublisher{
+		publishToTopicFunc: func(ctx context.Context, topic string, event interface{}) error {
+			if topic == "websocket-events" {
+				eventChan <- event
+			}
+			return nil
 		},
 	}
 
-	svc := service.NewChatService(mockWS, mockRepo)
+	svc := service.NewChatService(mockPublisher, mockRepo, rdb)
 
-	msg, err := svc.ProcessMessage(ctx, senderID, chatID, clientMsgID, content)
+	msg, err := svc.ProcessMessage(ctx, senderID, chatID, clientMsgID, cipherText)
 
 	if err != nil {
 		t.Fatalf("ожидался успех, но получена ошибка: %v", err)
@@ -97,42 +148,42 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 	if msg == nil {
 		t.Fatal("ожидалось сообщение, но получен nil")
 	}
-	if msg.ID != "msg_1" {
-		t.Errorf("ожидался ID 'msg_1', получено: '%s'", msg.ID)
+
+	var capturedEvents []interface{}
+	for range 2 {
+		select {
+		case event := <-eventChan:
+			capturedEvents = append(capturedEvents, event)
+		case <-time.After(1 * time.Second):
+			t.Fatalf("Таймаут: ожидалось событие вебсокета, но горутина его не прислала")
+		}
 	}
 
-	if !wsCalled {
-		t.Error("ожидалось, что сообщение будет отправлено в вебсокет, но BroadcastEvent не был вызван")
-	}
+	expectedUsers := []string{"good_user_2"}
 
-	if len(capturedEvents) != 2 {
-        t.Fatalf("ожидалось 2 события, получено: %d", len(capturedEvents))
-    }
-
-	expectedUsers := []string{"good_user_1", "good_user_2"}
-
-	event1 := capturedEvents[0] // message.created
+	event1 := capturedEvents[0].(websocket.Event) // message.created
     if event1.Type != websocket.EventTypeMessageCreated || event1.ChatID != chatID {
         t.Errorf("ошибка в первом событии (message.created): %+v", event1)
     }
+
     if !slices.Equal(event1.TargetUserIDs, expectedUsers) {
         t.Errorf("ожидались получатели %v для event1, получено %v", expectedUsers, event1.TargetUserIDs)
     }
 
-	var chatMsg domain.Message
+	var chatMsg dto.MessageResponse
 	if err := json.Unmarshal(event1.Payload, &chatMsg); err != nil {
         t.Errorf("ошибка распаковки Payload: %v", err)
     }
 
-	if chatMsg.Content != content {
-		t.Errorf("ожидался текст '%s', получено: '%s'", content, chatMsg.Content)
+	if !bytes.Equal(msg.CipherText, cipherText) {
+		t.Errorf("ожидался cipherText %v, получено: %v", cipherText, chatMsg.CipherText)
 	}
 
 	if chatMsg.ClientMessageID != clientMsgID {
 		t.Errorf("ожидался ClientMessageID '%s', получено: '%s'", clientMsgID, chatMsg.ClientMessageID)
 	}
 
-	event2 := capturedEvents[1] // chat.updated
+	event2 := capturedEvents[1].(websocket.Event) // chat.updated
     if event2.Type != websocket.EventTypeChatUpdated || event2.ChatID != chatID {
         t.Errorf("ошибка во втором событии (chat.updated): %+v", event2)
     }
@@ -147,6 +198,9 @@ func TestChatService_SyncMessages_Forbidden(t *testing.T) {
 	chatID := "chat_1"
 	userID := "hacker_1"
 
+	rdb, mr := setupTestRedis(t)
+	defer mr.Close()
+
 	mockRepo := &mockChatRepository{
 		getUsersInChatFunc: func(ctx context.Context, requestedChatID string) ([]string, error) {
 			return []string{"user_1", "user_2"}, nil
@@ -157,7 +211,7 @@ func TestChatService_SyncMessages_Forbidden(t *testing.T) {
 		},
 	}
 
-	svc := service.NewChatService(nil, mockRepo)
+	svc := service.NewChatService(nil, mockRepo, rdb)
 
 	messages, err := svc.SyncMessages(ctx, userID, chatID, 0, 50)
 
@@ -179,15 +233,18 @@ func TestChatService_SyncMessages_Forbidden(t *testing.T) {
 func TestChatService_ProcessMessage_DBError(t *testing.T) {
 	ctx := context.Background()
 
+	rdb, mr := setupTestRedis(t)
+	defer mr.Close()
+
 	mockRepo := &mockChatRepository{
 		getUsersInChatFunc: func(ctx context.Context, chatID string) ([]string, error) {
 			return nil, errors.New("db connections lost")
 		},
 	}
 
-	svc := service.NewChatService(nil, mockRepo)
+	svc := service.NewChatService(nil, mockRepo, rdb)
 
-	msg, err := svc.ProcessMessage(ctx, "user_1", "chat_1", "client_uuid_1", "something test")
+	msg, err := svc.ProcessMessage(ctx, "user_1", "chat_1", "client_uuid_1", []byte("something test"))
 
 	if err == nil {
 		t.Fatal("ожидалась ошибка базы данных, но метод вернул nil")
@@ -208,6 +265,9 @@ func TestChatService_UpdateReadStatus_Success(t *testing.T) {
     userID := "good_user_1"
     sequence := int64(15)
 
+	rdb, mr := setupTestRedis(t)
+	defer mr.Close()
+
     mockRepo := &mockChatRepository{
         getUsersInChatFunc: func(ctx context.Context, requestedRoomID string) ([]string, error) {
             return []string{"good_user_1", "good_user_2"}, nil
@@ -221,23 +281,15 @@ func TestChatService_UpdateReadStatus_Success(t *testing.T) {
         },
     }
 
-    wsCalled := false
-    mockWS := &mockWSBroadcaster{
-        broadcastEventFunc: func(event websocket.Event) {
-            wsCalled = true
-            
-            if event.ChatID != chatID {
-                t.Errorf("неверный chatID в событии: %s", event.ChatID)
-            }
-            
-            expectedUsers := []string{"good_user_1", "good_user_2"}
-            if !slices.Equal(event.TargetUserIDs, expectedUsers) {
-                t.Errorf("ожидались получатели %v, получено %v", expectedUsers, event.TargetUserIDs)
-            }
-        },
-    }
+	eventChan := make(chan interface{}, 1)
+	mockPublisher := &mockEventPublisher{
+		publishToTopicFunc: func(ctx context.Context, topic string, event interface{}) error {
+			eventChan <- event
+			return nil
+		},
+	}
 
-    svc := service.NewChatService(mockWS, mockRepo)
+    svc := service.NewChatService(mockPublisher, mockRepo, rdb)
 
     err := svc.UpdateReadStatus(ctx, chatID, userID, sequence)
 
@@ -245,7 +297,32 @@ func TestChatService_UpdateReadStatus_Success(t *testing.T) {
         t.Fatalf("ожидался успех, но получена ошибка: %v", err)
     }
 
-    if !wsCalled {
-        t.Error("ожидалось, что статус прочтения будет разослан в вебсокет, но BroadcastEvent не был вызван")
-    }
+	select {
+	case capturedEvent := <-eventChan:
+		event := capturedEvent.(websocket.Event)
+		if event.ChatID != chatID {
+			t.Errorf("неверный chatID в событии: %s", event.ChatID)
+		}
+		expectedUsers := []string{"good_user_1", "good_user_2"}
+		if !slices.Equal(event.TargetUserIDs, expectedUsers) {
+			t.Errorf("ожидались получатели %v, получено %v", expectedUsers, event.TargetUserIDs)
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Таймаут: статус прочтения не был отправлен в брокер")
+	}
+}
+
+func setupTestRedis(t *testing.T) (*redis.Client, *miniredis.Miniredis) {
+	t.Helper()
+
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("не удалось запустить миниредис: %v", err)
+	}
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: mr.Addr(),
+	})
+
+	return rdb, mr
 }

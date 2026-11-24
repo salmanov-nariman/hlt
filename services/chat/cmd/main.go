@@ -2,6 +2,8 @@ package main
 
 import (
 	"chat/config"
+	_ "chat/docs"
+	"chat/internal/broker"
 	"chat/internal/handler"
 	"chat/internal/repository"
 	"chat/internal/service"
@@ -13,6 +15,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/go-chi/chi"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
@@ -21,6 +25,8 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
+	httpSwagger "github.com/swaggo/http-swagger"
 )
 
 func main() {
@@ -43,35 +49,63 @@ func main() {
 	}
 	log.Println("Успешное подключение к PostgreSQL!")
 
-	wsManager := websocket.NewManager()
+	rdb := redis.NewClient(&redis.Options{
+		Addr: cfg.RedisAddr, 
+	})
+
+	wsManager := websocket.NewManager(rdb)
 	chatRepository := repository.NewChatRepository(dbPool)
-	chatService := service.NewChatService(wsManager, chatRepository)
-	chatHandler := handler.NewChatHandler(chatService)
+	
+	kafkaBrokers := strings.Split(cfg.KafkaBrokers, ",")
+	wsTopic := cfg.KafkaWSTopic
+
+	kafkaProducer := broker.NewProducer(kafkaBrokers)
+	defer kafkaProducer.Close()
+
+	kafkaConsumer := broker.NewConsumer(kafkaBrokers, wsTopic, wsManager)
+	defer kafkaConsumer.Close()
+
+	go kafkaConsumer.Start(ctx)
+
+	chatService := service.NewChatService(kafkaProducer, chatRepository, rdb)
+	chatHandler := handler.NewChatHandler(chatService, kafkaProducer)
 
 	r := chi.NewRouter()
 
-	r.Use(chiMiddleware.Logger)
 	r.Use(chiMiddleware.Recoverer)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Use(middleware.AuthMiddleware)
 
 		r.Post("/chats", middleware.REDMetricsMiddleware("/api/chats", chatHandler.CreateChat))
-		r.Post("/messages", middleware.REDMetricsMiddleware("/api/messages", chatHandler.PostMessage))
-		r.Post("/chat/read", chatHandler.MarkAsRead)
-
-		r.Get("/chat/messages",  middleware.REDMetricsMiddleware("/api/chat/messages", chatHandler.SyncMessages))
 		r.Get("/chats", middleware.REDMetricsMiddleware("/api/chats", chatHandler.GetUserChats))
+		r.Get("/chats/{chat_id}", middleware.REDMetricsMiddleware("/api/chat/{chat_id}", chatHandler.GetChat))
 
+		r.Post("/chats/{chat_id}/messages", middleware.REDMetricsMiddleware("/api/messages", chatHandler.PostMessage))
+		r.Get("/chats/{chat_id}/messages", middleware.REDMetricsMiddleware("/api/chat/messages", chatHandler.GetChatMessages))
+
+		r.Post("/chats/{chat_id}/read", middleware.REDMetricsMiddleware("/api/chats/{chat_id}/read", chatHandler.MarkAsRead))
+
+		r.Get("/sync/messages",  middleware.REDMetricsMiddleware("/api/sync/messages", chatHandler.SyncMessages))
+
+		r.Post("/public-keys", middleware.REDMetricsMiddleware("/api/public-keys", chatHandler.SaveKey))
+		r.Get("/public-keys/{user_id}", middleware.REDMetricsMiddleware("/api/public-keys/{user_id}", chatHandler.GetLatestKey))
+		
 		r.Get("/chat/ws", wsManager.ServeWS)
 	})
 
 	r.Handle("/metrics", promhttp.Handler())
 
+	r.Get("/swagger/*", httpSwagger.WrapHandler)
 	r.Handle("/*", http.FileServer(http.Dir("./frontend")))
 
-	log.Println("Server is starting on :8080...")
-	log.Fatal(http.ListenAndServe(":8080", r))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Printf("Server is starting on :%s...", port)
+	log.Fatal(http.ListenAndServe(":"+port, r))
 }
 
 func runMigrations(dbUrl string) error {

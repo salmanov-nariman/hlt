@@ -14,6 +14,6 @@ type Event struct {
 	Type          string          `json:"type"`
 	Payload       json.RawMessage `json:"payload"`
 	ChatID        string          `json:"chat_id"`
-	TargetUserIDs []string        `json:"-"`
+	TargetUserIDs []string        `json:"target_user_ids"`
 }
 

@@ -4,34 +4,58 @@ import (
 	"chat/internal/domain"
 	"chat/internal/websocket"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"slices"
+	"strings"
+	"time"
 )
 
+var (
+	ErrInvalidPartner = errors.New("invalid partner: cannot create chat with yourself")
+	ErrUserNotFound   = errors.New("user not found")
+)
 
-func (s *ChatService) CreateChat(ctx context.Context, senderID string, invitedIDs []string) (string, error) {
-	uniqueUsers := make(map[string]struct{})
-
-	uniqueUsers[senderID] = struct{}{}
-
-	for _, userID := range invitedIDs {
-		uniqueUsers[userID] = struct{}{}
+func (s *ChatService) CreateOrGetDirectChat(ctx context.Context, senderID, partnerID string) (domain.ChatSummary, bool, error) {
+	if senderID == partnerID {
+		return domain.ChatSummary{}, false, ErrInvalidPartner
 	}
 
-	finalMembersIDs := make([]string, 0, len(uniqueUsers))
-	for uid := range uniqueUsers {
-		finalMembersIDs = append(finalMembersIDs, uid)
-	}
-
-	chatID, err := s.chatRepository.CreateChat(ctx, finalMembersIDs)
+	existingChatID, err := s.chatRepository.GetDirectChat(ctx, senderID, partnerID)
 	if err != nil {
-		return "", fmt.Errorf("failed to create chat in db: %w", err)
+		return domain.ChatSummary{}, false, fmt.Errorf("failed to check existing chat: %w", err)
 	}
 
-	return chatID, nil
-}
+	var chatID string
+	var isNew bool
+	
+	if existingChatID != nil {
+		chatID = *existingChatID
+		isNew = false
+	} else {
+		chatID, err = s.chatRepository.CreateDirectChat(ctx, senderID, partnerID)
+		if err != nil {
+			//имитация ошибки отсутствия user, пока не прикрутил user service
+			if strings.Contains(err.Error(), "foreign key constraint") {
+				return domain.ChatSummary{}, false, ErrUserNotFound
+			}
+			return domain.ChatSummary{}, false, fmt.Errorf("failed to create direct chat: %w", err)
+		}
+		isNew = true
+	}
 
+	chat, err := s.chatRepository.GetChatByID(ctx, chatID, senderID)
+	if err != nil {
+		return domain.ChatSummary{}, false, fmt.Errorf("failed to get created chat: %w", err)
+	}
+
+	// TODO: Обогатить данные профилем партнера через UserProvider
+
+	return chat, isNew, nil
+}
 
 func (s *ChatService) UpdateReadStatus(ctx context.Context, chatID, userID string, sequence int64) error {
 	membersIDs, err := s.chatRepository.GetUsersInChat(ctx, chatID)
@@ -56,21 +80,92 @@ func (s *ChatService) UpdateReadStatus(ctx context.Context, chatID, userID strin
 
 	payloadBytes, err := json.Marshal(payload)
 
-	s.wsManager.BroadcastEvent(websocket.Event{
+	err = s.kafkaProducer.PublishToTopic(ctx, "websocket-events", websocket.Event{
 		Type: websocket.EventTypeChatRead,
 		ChatID: chatID,
 		TargetUserIDs: membersIDs,
 		Payload: payloadBytes,
 	})
-
+	if err != nil {
+		log.Printf("Failed to publish chat read event to Kafka: %v", err)
+	}
+	
 	return nil
 }
 
 
-func (s *ChatService) GetUserChats(ctx context.Context, userID string) ([]domain.ChatSummary, error) {
-	chats, err := s.chatRepository.GetUserChats(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("chat service - failed to get user chats: %w", err)
+var ErrInvalidCursor = errors.New("invalid cursor")
+
+func (s *ChatService) GetUserChats(ctx context.Context, userID string, limit int, cursor string) ([]domain.ChatSummary, *string, error) {
+	var cursorUpdatedAt *time.Time
+	var cursorID *string
+	var err error
+
+	if cursor != "" {
+		cursorUpdatedAt, cursorID, err = decodeCursor(cursor)
+		if err != nil {
+			return nil, nil, err
+		} 
 	}
-	return chats, nil
+
+	chats, err := s.chatRepository.GetUserChats(ctx, userID, limit, cursorUpdatedAt, cursorID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("chat service - failed to get user chats: %w", err)
+	}
+
+	var nextCursor *string
+	if len(chats) == limit && len(chats) > 0 {
+		lastChat := chats[len(chats)-1]
+
+		encoded := encodeCursor(lastChat.UpdatedAt, lastChat.ID)
+		nextCursor = &encoded
+	}
+
+	return chats, nextCursor, nil
+}
+
+func encodeCursor(t time.Time, id string) string {
+	cursorStr := fmt.Sprintf("%s|%s", t.Format(time.RFC3339Nano), id)
+	return base64.RawURLEncoding.EncodeToString([]byte(cursorStr))
+}
+
+func decodeCursor(cursor string) (*time.Time, *string, error) {
+	decodedBytes, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return nil, nil, ErrInvalidCursor
+	}
+
+	parts := strings.Split(string(decodedBytes), "|")
+	if len(parts) != 2 {
+		return nil, nil, ErrInvalidCursor
+	}
+
+	t, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil {
+		return nil, nil, ErrInvalidCursor
+	}
+
+	return &t, &parts[1], nil 
+}
+
+func (s *ChatService) GetChat(ctx context.Context, chatID, userID string) (domain.ChatSummary, error) {
+	//сначала проверяем состоит ли юзер в чате
+	userIDs, err := s.chatRepository.GetUsersInChat(ctx, chatID)
+	if err != nil {
+		return domain.ChatSummary{}, fmt.Errorf("failed to get users in chat: %w", err)
+	}
+	if !slices.Contains(userIDs, userID) {
+		return domain.ChatSummary{}, domain.ErrUserNotInChat
+	}
+
+	//достаем объект чата
+	chat, err := s.chatRepository.GetChatByID(ctx, chatID, userID)
+	if err != nil {
+		if errors.Is(err, domain.ErrChatNotFound) {
+			return domain.ChatSummary{}, domain.ErrChatNotFound
+		}
+		return domain.ChatSummary{}, fmt.Errorf("failed to get chat from repo: %w", err)
+	}
+
+	return chat, nil
 }
