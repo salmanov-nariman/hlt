@@ -7,6 +7,7 @@ on:
     paths:
       - 'services/auth/**'
       - 'api/email/**'
+      - 'api/user/**'
       - '.github/workflows/auth.yml'
 
   push:
@@ -15,6 +16,7 @@ on:
     paths:
       - 'services/auth/**'
       - 'api/email/**'
+      - 'api/user/**'
       - '.github/workflows/auth.yml'
 
 permissions:

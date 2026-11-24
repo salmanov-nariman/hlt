@@ -19,7 +19,10 @@ spec:
           image: ghcr.io/salmanov-nariman/hlt-user:latest
           imagePullPolicy: Always
           ports:
-            - containerPort: 8080
+            - name: http
+              containerPort: 8081
+            - name: grpc
+              containerPort: 9091
           envFrom:
             - configMapRef:
                 name: user-config

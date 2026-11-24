@@ -5,6 +5,7 @@ COPY services/auth/pom.xml ./pom.xml
 RUN mvn dependency:go-offline -B
 
 COPY api/email /app/api/email
+COPY api/user /app/api/user
 COPY services/auth/src ./src
 RUN mvn package -DskipTests -B
 

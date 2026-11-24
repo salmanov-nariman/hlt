@@ -1,6 +1,7 @@
 package com.hlt.auth.service;
 
 import com.hlt.auth.grpc.client.EmailClient;
+import com.hlt.auth.grpc.client.UserClient;
 import com.hlt.auth.jwt.JwtService;
 import com.hlt.auth.model.data.EmailVerificationResult;
 import com.hlt.auth.model.data.RegistrationData;
@@ -18,6 +19,7 @@ import com.hlt.auth.model.entity.RefreshToken;
 import com.hlt.auth.repository.CredentialsRepository;
 import com.hlt.auth.repository.EmailVerificationRepository;
 import com.hlt.auth.repository.RefreshTokenRepository;
+import io.grpc.Status;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -73,6 +75,9 @@ public class AuthServiceTest {
 
     @Mock
     private EmailClient emailClient;
+
+    @Mock
+    private UserClient userClient;
 
     @DisplayName("Регистрация возвращает пользователя независимо от результата отправки письма")
     @ParameterizedTest(name = "Письмо отправлено: {0}")
@@ -190,9 +195,10 @@ public class AuthServiceTest {
         Mockito.verifyNoInteractions(registrationPersistenceService, emailClient);
     }
 
-    @DisplayName("Верный код активирует аккаунт и удаляет запись подтверждения")
-    @Test
-    void shouldVerifyPendingAccount() {
+    @DisplayName("Аккаунт активируется только после создания профиля")
+    @ParameterizedTest(name = "Профиль создан: {0}")
+    @ValueSource(booleans = {true, false})
+    void shouldVerifyPendingAccount(boolean profileCreated) {
         Instant now = Instant.now();
         Credentials account = pendingAccount(now.minusSeconds(60));
         EmailVerifyRequest request = new EmailVerifyRequest(account.getEmail(), "012345");
@@ -207,6 +213,24 @@ public class AuthServiceTest {
         Mockito.when(verificationCodeService.getMaxAttempts()).thenReturn(5);
         Mockito.when(verificationCodeService.matches(request.verificationCode(), verification.getCodeHash()))
                 .thenReturn(true);
+
+        if (!profileCreated) {
+            Mockito.when(userClient.createProfile(account.getId(), account.getUsername(), account.getEmail()))
+                    .thenReturn(Mono.error(Status.UNAVAILABLE.asRuntimeException()));
+
+            StepVerifier.create(authService.emailVerify(request))
+                    .expectErrorMatches(error -> error instanceof ResponseStatusException response
+                            && response.getStatusCode() == HttpStatus.SERVICE_UNAVAILABLE)
+                    .verify();
+
+            assertEquals(AccountStatus.PENDING_VERIFICATION, account.getStatus());
+            Mockito.verify(credentialsRepository, Mockito.never()).save(account);
+            Mockito.verify(emailVerificationRepository, Mockito.never()).deleteByAccountId(account.getId());
+            return;
+        }
+
+        Mockito.when(userClient.createProfile(account.getId(), account.getUsername(), account.getEmail()))
+                .thenReturn(Mono.empty());
         Mockito.when(credentialsRepository.save(account)).thenReturn(Mono.just(account));
         Mockito.when(emailVerificationRepository.deleteByAccountId(account.getId())).thenReturn(Mono.empty());
 
@@ -215,8 +239,10 @@ public class AuthServiceTest {
                 .verifyComplete();
 
         assertEquals(AccountStatus.ACTIVE, account.getStatus());
-        Mockito.verify(credentialsRepository).save(account);
-        Mockito.verify(emailVerificationRepository).deleteByAccountId(account.getId());
+        var calls = Mockito.inOrder(userClient, credentialsRepository, emailVerificationRepository);
+        calls.verify(userClient).createProfile(account.getId(), account.getUsername(), account.getEmail());
+        calls.verify(credentialsRepository).save(account);
+        calls.verify(emailVerificationRepository).deleteByAccountId(account.getId());
     }
 
     @DisplayName("Истёкший срок регистрации блокирует подтверждение")

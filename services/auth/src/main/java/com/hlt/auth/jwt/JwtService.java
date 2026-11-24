@@ -17,6 +17,8 @@ import java.util.UUID;
 @Service
 public class JwtService {
 
+    private static final String INVALID_TOKEN = "Невалидный токен";
+
     private final SecretKey secretKey;
     private final long accessExpiration;
 
@@ -56,7 +58,7 @@ public class JwtService {
             String userIdString = claims.getSubject();
             return Mono.just(UUID.fromString(userIdString));
         } catch (JwtException | IllegalArgumentException e) {
-            return Mono.error(new IllegalArgumentException("Невалидный токен"));
+            return Mono.error(new IllegalArgumentException(INVALID_TOKEN));
         }
     }
 

@@ -20,6 +20,10 @@ spring:
           target: ${EMAIL_GRPC_TARGET}
           ssl:
             enabled: false
+        user:
+          target: ${USER_GRPC_TARGET}
+          ssl:
+            enabled: false
 
 jwt:
   secret: ${JWT_SECRET}

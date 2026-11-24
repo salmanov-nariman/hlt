@@ -49,11 +49,9 @@ spec:
           readinessProbe:
             exec:
               command:
-                - pg_isready
-                - -U
-                - user
-                - -d
-                - user_db
+                - sh
+                - -c
+                - 'pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
             initialDelaySeconds: 5
             periodSeconds: 5
   volumeClaimTemplates:
