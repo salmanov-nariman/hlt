@@ -15,5 +15,5 @@ LABEL org.opencontainers.image.source="https://github.com/salmanov-nariman/hlt"
 
 COPY --from=build /app/services/user/target/*.jar app.jar
 
-EXPOSE 8081 9091
+EXPOSE 8080 9091
 ENTRYPOINT ["java", "-jar", "app.jar"]
