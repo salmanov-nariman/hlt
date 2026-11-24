@@ -57,6 +57,7 @@ jobs:
       VERIFICATION_MAX_ATTEMPTS: "5"
       VERIFICATION_REGISTRATION_EXPIRATION: "15m"
       EMAIL_GRPC_TARGET: 'localhost:9090'
+      USER_GRPC_TARGET: 'localhost:9091'
 
     steps:
       - name: Checkout repository
