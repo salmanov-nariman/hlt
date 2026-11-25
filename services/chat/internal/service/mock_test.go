@@ -11,10 +11,8 @@ type mockEventPublisher struct {
 }
 
 func (m *mockEventPublisher) PublishToTopic(ctx context.Context, topic string, event interface{}) error {
-	if m.publishToTopicFunc(ctx, topic, event) != nil {
-		return m.publishToTopicFunc(ctx, topic, event)
-	}
-	return nil
+	return m.publishToTopicFunc(ctx, topic, event)
+
 }
 
 type mockChatRepository struct {
