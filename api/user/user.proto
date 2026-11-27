@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package user;
+
+import "google/protobuf/empty.proto";
+
+option java_package = "com.hlt.user.grpc";
+option java_multiple_files = true;
+
+service UserService {
+  rpc CreateUserProfile(CreateUserProfileRequest)
+      returns (google.protobuf.Empty);
+}
+
+message CreateUserProfileRequest {
+  string id = 1;
+  string username = 2;
+  string email = 3;
+}

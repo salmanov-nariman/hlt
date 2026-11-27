@@ -14,6 +14,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class EmailGrpcService extends EmailServiceGrpc.EmailServiceImplBase {
 
+    private static final String EMAIL_DELIVERY_FAILED = "Не удалось отправить письмо";
+
     private final JavaMailSender mailSender;
 
     public EmailGrpcService(JavaMailSender mailSender) {
@@ -34,7 +36,7 @@ public class EmailGrpcService extends EmailServiceGrpc.EmailServiceImplBase {
             mailSender.send(message);
         } catch (MailException e) {
             responseObserver.onError(Status.UNAVAILABLE
-                    .withDescription("Не удалось отправить письмо")
+                    .withDescription(EMAIL_DELIVERY_FAILED)
                     .asRuntimeException());
             return;
         }
