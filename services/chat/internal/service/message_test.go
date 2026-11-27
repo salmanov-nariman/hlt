@@ -97,7 +97,6 @@ func TestChatService_ProcessMessage_UserNotMember(t *testing.T) {
 	}
 }
 
-
 func TestChatService_ProcessMessage_Success(t *testing.T) {
 	ctx := context.Background()
 	chatID := "chat_1"
@@ -121,8 +120,8 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 			return nil
 		},
 		updateReadStatusFunc: func(ctx context.Context, reqChatID, reqUserID string, reqSeq int64) error {
-            return nil
-        },
+			return nil
+		},
 	}
 
 	mr.Set("online:good_user_2", "1")
@@ -162,18 +161,18 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 	expectedUsers := []string{"good_user_2"}
 
 	event1 := capturedEvents[0].(websocket.Event) // message.created
-    if event1.Type != websocket.EventTypeMessageCreated || event1.ChatID != chatID {
-        t.Errorf("ошибка в первом событии (message.created): %+v", event1)
-    }
+	if event1.Type != websocket.EventTypeMessageCreated || event1.ChatID != chatID {
+		t.Errorf("ошибка в первом событии (message.created): %+v", event1)
+	}
 
-    if !slices.Equal(event1.TargetUserIDs, expectedUsers) {
-        t.Errorf("ожидались получатели %v для event1, получено %v", expectedUsers, event1.TargetUserIDs)
-    }
+	if !slices.Equal(event1.TargetUserIDs, expectedUsers) {
+		t.Errorf("ожидались получатели %v для event1, получено %v", expectedUsers, event1.TargetUserIDs)
+	}
 
 	var chatMsg dto.MessageResponse
 	if err := json.Unmarshal(event1.Payload, &chatMsg); err != nil {
-        t.Errorf("ошибка распаковки Payload: %v", err)
-    }
+		t.Errorf("ошибка распаковки Payload: %v", err)
+	}
 
 	if !bytes.Equal(msg.CipherText, cipherText) {
 		t.Errorf("ожидался cipherText %v, получено: %v", cipherText, chatMsg.CipherText)
@@ -184,14 +183,13 @@ func TestChatService_ProcessMessage_Success(t *testing.T) {
 	}
 
 	event2 := capturedEvents[1].(websocket.Event) // chat.updated
-    if event2.Type != websocket.EventTypeChatUpdated || event2.ChatID != chatID {
-        t.Errorf("ошибка во втором событии (chat.updated): %+v", event2)
-    }
-    if !slices.Equal(event2.TargetUserIDs, expectedUsers) {
-        t.Errorf("ожидались получатели %v для event2, получено %v", expectedUsers, event2.TargetUserIDs)
-    }
+	if event2.Type != websocket.EventTypeChatUpdated || event2.ChatID != chatID {
+		t.Errorf("ошибка во втором событии (chat.updated): %+v", event2)
+	}
+	if !slices.Equal(event2.TargetUserIDs, expectedUsers) {
+		t.Errorf("ожидались получатели %v для event2, получено %v", expectedUsers, event2.TargetUserIDs)
+	}
 }
-
 
 func TestChatService_SyncMessages_Forbidden(t *testing.T) {
 	ctx := context.Background()
@@ -229,7 +227,6 @@ func TestChatService_SyncMessages_Forbidden(t *testing.T) {
 	}
 }
 
-
 func TestChatService_ProcessMessage_DBError(t *testing.T) {
 	ctx := context.Background()
 
@@ -260,26 +257,26 @@ func TestChatService_ProcessMessage_DBError(t *testing.T) {
 }
 
 func TestChatService_UpdateReadStatus_Success(t *testing.T) {
-    ctx := context.Background()
-    chatID := "chat_1"
-    userID := "good_user_1"
-    sequence := int64(15)
+	ctx := context.Background()
+	chatID := "chat_1"
+	userID := "good_user_1"
+	sequence := int64(15)
 
 	rdb, mr := setupTestRedis(t)
 	defer mr.Close()
 
-    mockRepo := &mockChatRepository{
-        getUsersInChatFunc: func(ctx context.Context, requestedRoomID string) ([]string, error) {
-            return []string{"good_user_1", "good_user_2"}, nil
-        },
+	mockRepo := &mockChatRepository{
+		getUsersInChatFunc: func(ctx context.Context, requestedRoomID string) ([]string, error) {
+			return []string{"good_user_1", "good_user_2"}, nil
+		},
 
-        updateReadStatusFunc: func(ctx context.Context, reqChatID, reqUserID string, reqSeq int64) error {
-            if reqChatID != chatID || reqUserID != userID || reqSeq != sequence {
-                t.Errorf("неверные данные для обновления: chatID=%s, userID=%s, seq=%d", reqChatID, reqUserID, reqSeq)
-            }
-            return nil
-        },
-    }
+		updateReadStatusFunc: func(ctx context.Context, reqChatID, reqUserID string, reqSeq int64) error {
+			if reqChatID != chatID || reqUserID != userID || reqSeq != sequence {
+				t.Errorf("неверные данные для обновления: chatID=%s, userID=%s, seq=%d", reqChatID, reqUserID, reqSeq)
+			}
+			return nil
+		},
+	}
 
 	eventChan := make(chan interface{}, 1)
 	mockPublisher := &mockEventPublisher{
@@ -289,13 +286,13 @@ func TestChatService_UpdateReadStatus_Success(t *testing.T) {
 		},
 	}
 
-    svc := service.NewChatService(mockPublisher, mockRepo, rdb)
+	svc := service.NewChatService(mockPublisher, mockRepo, rdb)
 
-    err := svc.UpdateReadStatus(ctx, chatID, userID, sequence)
+	err := svc.UpdateReadStatus(ctx, chatID, userID, sequence)
 
-    if err != nil {
-        t.Fatalf("ожидался успех, но получена ошибка: %v", err)
-    }
+	if err != nil {
+		t.Fatalf("ожидался успех, но получена ошибка: %v", err)
+	}
 
 	select {
 	case capturedEvent := <-eventChan:
