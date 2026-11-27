@@ -6,4 +6,4 @@ metadata:
 
 data:
   WORKER_SERVICE_ADDR: "worker-service:50051"
-  HHTP_PORT: "8080"
+  HTTP_PORT: "8080"
