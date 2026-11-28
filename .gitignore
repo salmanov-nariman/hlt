@@ -4,7 +4,4 @@
 /k8s/email/secret.yaml
 /db/init/docker-compose.yaml
 services/notifier/serviceAccountKey.json
-
-# Go test coverage reports
-coverage.out
-coverage.html
+/db/init/.env

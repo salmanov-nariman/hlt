@@ -16,8 +16,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
-
+	
 	"github.com/go-chi/chi"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/golang-migrate/migrate/v4"
@@ -32,7 +31,10 @@ import (
 func main() {
 	ctx := context.Background()
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Ошибка загрузки конфигурации: %v", err)
+	}
 
 	if err := runMigrations(cfg.DatabaseURL); err != nil {
 		log.Fatalf("Ошибка при выполнении миграций: %v", err)
@@ -56,7 +58,7 @@ func main() {
 	wsManager := websocket.NewManager(rdb)
 	chatRepository := repository.NewChatRepository(dbPool)
 	
-	kafkaBrokers := strings.Split(cfg.KafkaBrokers, ",")
+	kafkaBrokers := cfg.KafkaBrokers
 	wsTopic := cfg.KafkaWSTopic
 
 	kafkaProducer := broker.NewProducer(kafkaBrokers)
